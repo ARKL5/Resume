@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "language": "zh-CN",
+  "theme": "swiss",
+  "layout_density": "dense",
+  "section_order": ["education", "projects", "skills", "awards"],
+  "filename": "王中宇_Agent开发实习_简历",
+  "target": {
+    "role": "Agent 开发实习",
+    "company_type": "互联网"
+  },
+  "basics": {
+    "name": "王中宇",
+    "headline": "Agent 开发实习生｜常驻杭州 · 每周 5 天 · 随时到岗",
+    "phone": "17280721257",
+    "email": "ark33419@gmail.com",
+    "location": "杭州",
+    "links": [
+      {"label": "GitHub", "url": "https://github.com/ARKL5"}
+    ],
+    "summary": "**Agent 工作流与架构适配**：熟练掌握主流 Agent Harness 架构与 API Proxy 适配，具备快速搭建、定制多模型 AI-Assisted 开发工作流的能力，能完成多模型路由、技能调用与本地代理的工程化接入。\n**工具链沉淀与 Prompt 工程**：善于将高频工序模块化沉淀为 Agent Skills，并持续维护定制化 Prompt 与工程化辅助工具链。"
+  },
+  "education": [
+    {
+      "school": "浙江理工大学",
+      "degree": "本科",
+      "major": "智能科学与技术",
+      "start": "2023.09",
+      "end": "2027.06"
+    }
+  ],
+  "experience": [],
+  "projects": [
+    {
+      "organization": "零售客服 Agent 安全执行与评测系统",
+      "role": "独立个人项目｜安全运行时设计与端到端客观评测",
+      "start": "2026.06",
+      "end": "2026.08",
+      "tech": ["Python", "Pydantic", "Tool Calling", "pytest"],
+      "link": "https://github.com/ARKL5/retail-bench",
+      "link_label": "GitHub",
+      "bullets": [
+        {
+          "text": "针对大模型工具调用中“口头答应但未实际写库”及“越权乱写库”隐患，设计先预演、再授权、后提交的两阶段写路径。只读预演在独立内存副本中校验并返回整数分差价，写操作生成不可变待写入请求，必须通过结构化授权校验后才执行原子提交，从而隔离工具副作用。",
+          "evidence_type": "repository_verified",
+          "source_note": "catalog.py preview_order_action / propose_order_action / test_authorization.py"
+        },
+        {
+          "text": "基于 Pydantic v2（frozen=True, extra=\"forbid\"）为 10 个业务工具构建 JSON Schema；在统一参数校验处拦截非法调用，将模型参数错误转化为结构化观察回传给 Agent，形成运行时错误感知与自纠错闭环。",
+          "evidence_type": "repository_verified",
+          "source_note": "catalog.py run() ValidationError -> CatalogToolError"
+        },
+        {
+          "text": "规避传统 LLM-as-a-judge 的主观评分漂移，按 tau2-bench 的任务设定搭建端到端确定性评测。将所有货币强制换算为整数分以消除浮点误差，要求受控完成、状态哈希一致与终局状态一致同时成立，在 114 组端到端多轮复杂场景下取得 80.7%（92/114）的任务通过率。",
+          "evidence_type": "user_confirmed",
+          "source_note": "evaluator.py, eao_authority.py, artifact 20260811T165150Z-8d8046d5"
+        },
+        {
+          "text": "在题目与目标订单数据冻结的前提下做控制变量实验，分别验证 System Prompt 与 Tool Description 的调优收益；对照发现长 Prompt 对困难边界场景边际效用递减，并留下失败归因日志。",
+          "evidence_type": "user_confirmed",
+          "source_note": "eval-driven-dev.md 控制实验"
+        }
+      ]
+    },
+    {
+      "organization": "用户隔离的高可靠 RAG 知识库后端",
+      "role": "独立个人项目｜异步并发控制与检索链路防御",
+      "start": "2026.06",
+      "end": "2026.08",
+      "tech": ["FastAPI", "PostgreSQL", "pgvector", "SQLAlchemy", "MinIO", "Docker"],
+      "link": "https://github.com/ARKL5/rag-backend",
+      "link_label": "GitHub",
+      "bullets": [
+        {
+          "text": "设计基于锁顺序与乐观并发控制的异步索引构建流水线。通过 PostgreSQL 行级锁（知识库 FOR SHARE、文档及任务 FOR UPDATE）按固定顺序串行化并发变更，在单事务内完成切块向量落库与线上索引原子切换，使热重建期间检索问答保持可用，且过期任务无法覆盖新结果。",
+          "evidence_type": "repository_verified",
+          "source_note": "indexing.py _publish, test_lifecycle.py"
+        },
+        {
+          "text": "在 REPEATABLE READ 快照隔离下固定当次检索视图，做 Hybrid Search：pgvector 密集向量检索与 jieba 稀疏全文检索分路执行；两路各自放在独立 Savepoint 中，外部向量 API 超时则熔断降级为纯词法检索，双路正常时用 RRF（k=60）融合去重。",
+          "evidence_type": "repository_verified",
+          "source_note": "retrieval.py Savepoint 降级, fusion.py RRF_K=60"
+        },
+        {
+          "text": "采用 MinIO 对象存储，并在数据库事务失败时补偿清理孤儿文件；用 AST 解析 Markdown 并保留标题层级路径，PDF 按物理页切分并在标点边界回退；用线程池调度 CPU 密集型解析，避免阻塞 FastAPI 事件循环。",
+          "evidence_type": "repository_verified",
+          "source_note": "text_sources.py, documents.py"
+        },
+        {
+          "text": "基于 FastAPI SSE 实现流式问答，在流式响应中监听客户端断开（http.disconnect），断开后立即取消后台任务以节约 Token；在落库事务中用行锁校验引用文档仍有效，保证回答中的引用可回溯到真实文档，避免模型编造虚假引用。",
+          "evidence_type": "repository_verified",
+          "source_note": "conversations.py _DisconnectSupervisedStreamingResponse, qa/turns.py"
+        }
+      ]
+    }
+  ],
+  "skills": [
+    {"category": "核心方向", "items": ["Tool Calling", "RAG", "Hybrid Search", "Prompt Engineering"]},
+    {"category": "模型与数据", "items": ["Pydantic", "JSON Schema", "PostgreSQL", "pgvector", "RRF"]},
+    {"category": "后端与工程", "items": ["Python", "FastAPI", "SQLAlchemy", "SSE", "MinIO", "Docker", "pytest"]}
+  ],
+  "awards": [
+    {
+      "name": "中国移动杯·第一届浙江省大学生人工智能竞赛三等奖",
+      "date": "2025"
+    }
+  ]
+}
