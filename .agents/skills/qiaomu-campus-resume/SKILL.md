@@ -16,12 +16,14 @@ description: |
 
 ## 校验与渲染
 
-```bash
-python3 .agent/skills/qiaomu-campus-resume/scripts/validate_resume.py \
+解释器用仓库根目录 `.venv`，在 `pwsh` 里跑：
+
+```pwsh
+.venv\Scripts\python.exe .agents/skills/qiaomu-campus-resume/scripts/validate_resume.py `
   resume/resume-data-agent.json --theme swiss
 
-python3 .agent/skills/qiaomu-campus-resume/scripts/render_resume.py \
-  resume/resume-data-agent.json --theme swiss \
+.venv\Scripts\python.exe .agents/skills/qiaomu-campus-resume/scripts/render_resume.py `
+  resume/resume-data-agent.json --theme swiss `
   --output-dir resume/output
 ```
 
