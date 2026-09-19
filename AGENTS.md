@@ -23,11 +23,11 @@
 ## Project constraints
 
 - 秘密不进 git。经历与数字只写仓库已有证据。
-- Boss 筛选、对照页、代聊只改仓外 `D:\38993\Documents\get_jobs`。
+- Boss 筛选、代聊只改仓外 `D:\38993\Documents\get_jobs`。对照页 UI 在本仓 `screen/`。
 - 开聊须本人明确说。
 
 ## Verification
 
 投递件：`pwsh -File scripts/verify.ps1`（两份 JSON、swiss）。声称渲染完成时再按渲染 skill 出 PDF。
 
-改仓外对照页：在 `D:\38993\Documents\get_jobs\front` 跑 `npx next build`，再 `node scripts/copy-dist.mjs`。
+对照页：`cd screen; npm run dev` → `http://localhost:6867`（数据 `http://localhost:9527`）。改对照页时读 frontend-design 与 vercel-react-best-practices。

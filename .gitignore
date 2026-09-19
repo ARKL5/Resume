@@ -3,3 +3,6 @@ __pycache__/
 .env
 .venv/
 .next/
+.notes/
+screen/node_modules/
+screen/dist/
