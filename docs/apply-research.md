@@ -15,9 +15,7 @@
 | 网申只填 | Edge **牛客网申助手** |
 | 北森 / Moka 填不动 | **塔塔网申**；再不行求职喵或 OfferLink |
 | 网申真提交 | `HA7CH/job-pro` |
-| Boss 代聊 | `loks666/get_jobs` |
-| Boss 要桌面 UI | `geekgeekrun/geekgeekrun` |
-| Boss 要浏览器扩展 | Ocyss `boss-helper` GitHub 侧载 |
+| Boss 代聊 / 筛选 | 仓外 `D:\38993\Documents\get_jobs`（`loks666/get_jobs`）。只这一套 |
 
 ## 专属网申
 
@@ -63,34 +61,11 @@ HR 丢来官网 / Moka / 北森链接 → 改走专属网申，不是 Boss 直�
 
 ### 代聊
 
-优先源码仍更新的；商店扩展次之。仓内若还带智联 / 51 / 猎聘，那些渠道不用。
+只维护仓外 `D:\38993\Documents\get_jobs`。Playwright 点 Boss 网页（搜岗、读 JD、立即沟通、传图简历），没有官方打招呼接口。先筛选，开聊另说。上游若还带智联 / 51 / 猎聘，那些渠道不用。缺口改这份 clone，不换工具。
 
-| 工具 | 源 | 动作 | 为何进正文 |
+| 工具 | 源 | 动作 | 说明 |
 |---|---|---|---|
-| `loks666/get_jobs` | https://github.com/loks666/get_jobs | Playwright + Cookie。Boss 打招呼 + 图简历 | ~8.5k；2026-09-16 仍更。**优先这套** |
-| `geekgeekrun/geekgeekrun` | https://github.com/geekgeekrun/geekgeekrun | Electron + Puppeteer。自动开聊、已读不回再聊 | ~2.4k。要桌面 UI 时用 |
-| Ocyss/boss-helper | https://github.com/Ocyss/boss-helper ；Chrome `ogkmgjbagackkdlcibcailacnncgonbn` | 批量沟通 + GPT 打招呼；要 cookies | GitHub v0.5.2（2026-08）。商店页有 unavailable 旁证，优先 GitHub 侧载 |
-| `yangfeng20/ai-job` | https://github.com/yangfeng20/ai-job ；GF `527733` | 批量沟通、发简历、换联系方式、AI 坐席 | GH ~677；GF ~1298；2026-05。旧作 Batch Push GF `468125` 已停适应当页 |
-| BOSS海投助手 | Chrome `ngmdahaccemclbokmkhbdbklikbohepn` | 批量投递与自动沟通 | ~491；v1.3.3 / 2026-09 |
-| 菜大师boss海投助手 | GF `581725` | 海投 | 188 装；2026-09-11 |
-| 觅星小臣 BOSS海投助手 | 脚本猫 `5970` | 海投 | ~4k 装；约 3 个月前仍更 |
-| BossHunter | https://github.com/shengjidaguai-china/BossHunter | CDP；确认后再发 | v2.4.0 / 2026-09 |
-| 一键职达 | https://yjzd.work/ | Boss 自动投 + AI 打招呼 / 自动回复；指纹浏览器 | 桌面商业软件。13 平台里只用 Boss |
-| 职投助手 ZhiTou | Chrome `nffekoimgbildcbhnhgnncdgbkoblidc` | 自动招呼；目前 Boss | ~141 |
-| AI工作快搜 | Chrome `habgifainjngdknnhjhfigbdjkoealdi` | 自动投递 / 沟通 | ~202；cookies + webRequest |
-| `OpenFuckJob/FuckJob` | https://github.com/OpenFuckJob/FuckJob | Tauri；扫码、批量沟通 | 74 star |
-| 投投马 | Chrome `mbgdhklndilcojhbgaalelolcaiojleb` | 自动打招呼 | ~132；标 debugger |
-| 鹿鹿 Lulu | https://github.com/fanyangcloud/LuluAgent | Android 无障碍代沟通 | Releases 2026-09-14。本机是 Windows，只在要跑手机端时用 |
-
-### 只辅助、不代发
-
-| 工具 | 源 | 做什么 |
-|---|---|---|
-| AI求职助理 | Chrome `bhoegllmjgnpgnkfephahbibajklkaag` | 生成招呼，明文不自动发送 |
-| Job Hunter AI | Chrome `lljgdcaoaonebbcmdjglkkmejbjmkfbe` | 填进对话框，商店写不自动发送 |
-| BOSS直聘-外包标注 | Greasy Fork，作者「一袋米」，2026-09 | 标外包 |
-| JD/HR 提取 | GF `546240` | 提取信息 |
-| 岗位发布时间 | GF `541585` | 显示时间 |
+| `loks666/get_jobs` | https://github.com/loks666/get_jobs | Playwright + Cookie。筛选或开聊 + 图简历 | ~8.5k；2026-09-16 仍更。本机 `SCREEN_ONLY`。搜索杭州+上海；列表滚到底（停条件看已收获张数，不看当前 DOM）。规则只在列表（HR 近 3 天有文案才判、外包猎头字面、黑名单）；城市只分页（文案含杭州/上海，不按区县）。点卡和一岗主键用列表 `encryptId`。标题/JD 用 CPA `deepseek-v4.1-flash`（外包/猎头/驻场仍由 CPA 看 JD）。其它城市不点详情。词间和城间冷却 5 分钟；`wait_time` 下限 18s。人机验证须人工确认或验证消失才继续，不 15 秒自动点下一张。对照页 `http://127.0.0.1:9527/screen.html`（杭州/上海/其它 × 四列漏斗）。`screen-results.jsonl` 一岗一行。本人对照圈岗，对话里不逐岗。偏好在仓外 `candidate-profile.txt` |
 
 ## 不进正文
 
@@ -102,6 +77,7 @@ HR 丢来官网 / Moka / 北森链接 → 改走专属网申，不是 Boss 直�
 | 存活未钉死 | 脚本猫曾 `5839` Yangshengzhou | GF 已删；猫站时通时 404 |
 | 无公开源码 | NowClaw | 牛客介绍页桌面端，不优先 |
 | 自配映射、未钉 2026 维护 | jobfill、auto-ws、OpenJobAutofill、Job-Submit、1lck | 侧载只填，不是本轮优先 |
+| 其它 Boss 代聊 / 招呼扩展 | 桌面端、商店扩展、油猴、只生成招呼的助手 | 缺口改 get_jobs，不换工具 |
 | 错渠道 | 51 / 智联 / 应届生 / 实习僧站内代投 | 本轮不投这些渠道 |
 | HR 端 | Boss Plus、Boss Say Hi、GF `422508` | 反向，不是求职 |
 | 1 commit / 开放题乱写 | CampusApply-Agent | 不可信 |
@@ -110,7 +86,7 @@ HR 丢来官网 / Moka / 北森链接 → 改走专属网申，不是 Boss 直�
 
 1. **网申填表：** Edge 装牛客网申助手。北森 / Moka 再试塔塔或求职喵。
 2. **网申真提交：** `job-pro`。登录态用它的 session 扩展、调试端口或本地导出，哪种能跑通用哪种。
-3. **Boss 代聊：** 优先 `get_jobs`。要 UI 用 geekgeekrun。要扩展用 Ocyss 侧载。
+3. **Boss 筛选 / 代聊：** 只跑 `D:\38993\Documents\get_jobs`。不要并进本仓 git。不要另装 Boss 扩展 / 油猴 / 桌面端。秘密（Cookie、sqlite、`browser-data`）留在该目录，不要 `git add` 进本仓。
 4. 登录态接法不限。不要 `git add` cookie / 密码 / session 文件。
 
 ## 来源
@@ -119,6 +95,6 @@ HR 丢来官网 / Moka / 北森链接 → 改走专属网申，不是 Boss 直�
 
 网申填表：https://microsoftedge.microsoft.com/addons/detail/牛客网申助手/macoagnpgdmmcpnkpmiplpfompjkfdbe ；https://www.tatawangshen.com/ ；https://microsoftedge.microsoft.com/addons/detail/offerlink-简历自动填写助手/ciahffmjmolgknpmafahjanlfoblbofk ；https://microsoftedge.microsoft.com/addons/detail/求职喵·网申自动填简历神器/pmnkgkbolhdhgacoilieacaefhbpabcp ；https://github.com/TshyGO/resume-form-assistant-plugin ；https://github.com/HA7CH/job-pro
 
-Boss：https://github.com/loks666/get_jobs ；https://github.com/geekgeekrun/geekgeekrun ；https://github.com/Ocyss/boss-helper ；https://github.com/yangfeng20/ai-job ；https://github.com/shengjidaguai-china/BossHunter ；https://yjzd.work/ ；https://greasyfork.org/zh-CN/scripts/by-site/zhipin.com ；https://scriptcat.org/zh-CN/script-show-page/5970
+Boss：https://github.com/loks666/get_jobs
 
 校招入口（网申）：https://campus-talent.alibaba.com/ ；https://jobs.bytedance.com/campus/position ；https://campus.163.com/ ；https://join.qq.com/ ；http://campus.didiglobal.com
