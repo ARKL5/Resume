@@ -1,10 +1,10 @@
-import type { CityPage } from "./types"
+import type { CityPage, StationId } from "./types"
 
 export const CITY_PAGES: CityPage[] = ["杭州", "上海", "其它"]
 
-export const STAGES = [
-  { id: 1, title: "列表规则" },
-  { id: 2, title: "列表 CPA" },
-  { id: 3, title: "详情" },
-  { id: 4, title: "CPA 保留" },
-] as const
+export const STATIONS: { id: StationId; title: string; tone: string }[] = [
+  { id: "rule", title: "规则", tone: "s1" },
+  { id: "ai", title: "AI", tone: "s2" },
+  { id: "wait", title: "待读", tone: "s3" },
+  { id: "keep", title: "保留", tone: "s4" },
+]

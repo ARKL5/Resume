@@ -1,7 +1,15 @@
+import { itemReason } from "./reason"
 import type { ScreenItem } from "./types"
 
 const GROUP_RANK = [
   "HR未近3天活跃",
+  "岗位名含：运营",
+  "岗位名含：标注",
+  "岗位名含：训练",
+  "岗位名含：销售",
+  "岗位名含：客服",
+  "岗位名含：前端",
+  "岗位名含：客户端",
   "公司名含：外包",
   "公司名含：派遣",
   "公司名含：代招",
@@ -13,20 +21,10 @@ const GROUP_RANK = [
   "岗位名含：驻场",
   "岗位名含：猎头",
   "岗位名含：招聘顾问",
-  "招聘者头衔含：外包",
-  "招聘者头衔含：猎头",
-  "招聘者头衔含：招聘顾问",
   "职位黑名单命中",
   "公司黑名单命中",
-  "招聘者黑名单命中",
-  "关键词结果",
-  "列表规则淘汰",
-  "待人工",
-  "列表CPA淘汰",
-  "待点详情（其它城市）",
-  "待点详情",
-  "详情CPA淘汰",
-  "CPA保留",
+  "标题",
+  "JD",
 ]
 
 function rankOf(group: string): number {
@@ -37,21 +35,18 @@ function rankOf(group: string): number {
 }
 
 export function reasonGroup(it: ScreenItem): string {
-  const reason = (it.reason || "").trim()
-  if (reason) {
-    const colon = reason.indexOf("：")
-    if (colon > 0 && colon <= 12) {
-      const head = reason.slice(0, colon)
-      if (head === "公司名含" || head === "岗位名含" || head === "招聘者头衔含") {
-        const token = reason.slice(colon + 1).split(/[，、\s]/)[0] || ""
-        return token ? `${head}：${token}` : head
-      }
-      return head
+  const { kind, phase, body } = itemReason(it)
+  const colon = body.indexOf("：")
+  if (colon > 0 && colon <= 12) {
+    const head = body.slice(0, colon)
+    if (head === "公司名含" || head === "岗位名含") {
+      const token = body.slice(colon + 1).split(/[，、\s]/)[0] || ""
+      return token ? `${head}：${token}` : head
     }
-    return reason.length > 36 ? reason.slice(0, 36) : reason
+    if (head === "HR未近3天活跃" || head.endsWith("黑名单命中")) return head
   }
-  const status = (it.status || it.stage || "").trim()
-  return status || "未写停因"
+  if (kind === "AI") return phase || ""
+  return body.length > 36 ? body.slice(0, 36) : body
 }
 
 export function sortByReasonGroup(items: ScreenItem[]): ScreenItem[] {

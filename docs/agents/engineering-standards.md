@@ -15,7 +15,7 @@
 - **两份投递件。** 列看投递入口，不按 JD 另写一份。理由：[`docs/adr/0001-two-artifacts-by-entry.md`](../adr/0001-two-artifacts-by-entry.md)。
 - **渠道事实一份。** 只写 [`docs/apply-research.md`](../apply-research.md)。理由：[`docs/adr/0002-research-in-docs.md`](../adr/0002-research-in-docs.md)。
 - **Boss 在仓外。** 筛选、代聊只改 `D:\38993\Documents\get_jobs`。对照页 UI 在本仓 `screen/`。本仓仍是投递件，不是代聊后端。理由：[`docs/adr/0004-boss-get-jobs-outside-repo.md`](../adr/0004-boss-get-jobs-outside-repo.md)、[`docs/adr/0009-screen-own-page.md`](../adr/0009-screen-own-page.md)。
-- **筛选与对照页。** 规则在列表，城市只分页，详情只 CPA；对照页按停驻展示，是工作台不是产品页。词用停驻 / 圈岗 / 城市分页。理由：ADR 0005、0006、0009。
+- **筛选与对照页。** 规则在列表（含岗位名运营/前端等字面），城市只分页；其余标题走标题 AI，JD 走 JD AI。对照页四处停驻：规则 / AI / 待读 / 保留。词用停驻 / 圈岗 / 城市分页 / 待读 / 停因。不要写圈阅、CPA、漏斗列。理由：ADR 0005、0006、0009、0010。
 - **证据。** 投递件经历与数字能在仓库或口述素材核对。开放题是投递件正文的真子集。
 - **秘密与 git。** 秘密不进 git。只在本机 commit。
 - **开聊。** 须本人明确说。对照页和 `SCREEN_ONLY` 都不开聊。

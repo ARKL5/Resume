@@ -18,7 +18,7 @@ type Props = {
 
 type Group = { label: string; entries: { it: ScreenItem; i: number }[] }
 
-function StageTable({ items, page, pageSize, onPage, hi, onHi, starred, jdOpenKey, onToggleStar }: Props) {
+function StationTable({ items, page, pageSize, onPage, hi, onHi, starred, jdOpenKey, onToggleStar }: Props) {
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize))
   const safePage = Math.min(page, totalPages)
   const start = (safePage - 1) * pageSize
@@ -42,10 +42,12 @@ function StageTable({ items, page, pageSize, onPage, hi, onHi, starred, jdOpenKe
     <div>
       {groups.map((g) => (
         <div key={`${g.label}-${g.entries[0].i}`}>
-          <div className="group-h">
-            {g.label}
-            <span className="n">{g.entries.length}</span>
-          </div>
+          {g.label ? (
+            <div className="group-h">
+              {g.label}
+              <span className="n">{g.entries.length}</span>
+            </div>
+          ) : null}
           <div className="jobs">
             {g.entries.map(({ it, i }) => {
               const k = jobKey(it)
@@ -72,4 +74,4 @@ function StageTable({ items, page, pageSize, onPage, hi, onHi, starred, jdOpenKe
   )
 }
 
-export default memo(StageTable)
+export default memo(StationTable)

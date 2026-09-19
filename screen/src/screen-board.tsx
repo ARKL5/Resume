@@ -1,18 +1,20 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import { apiUrl } from "./api"
-import { CITY_PAGES, STAGES } from "./constants"
+import { CITY_PAGES, STATIONS } from "./constants"
 import { pageSizeForViewport } from "./page-size"
 import { loadStars, saveStars } from "./stars"
 import { sortByReasonGroup } from "./groups"
-import StageTable from "./stage-table"
+import StationTable from "./station-table"
 import {
   bossHref,
   cityOf,
-  columnOf,
+  isPlaced,
   jobKey,
+  stationOf,
   type BossStatus,
   type CityPage,
   type ScreenItem,
+  type StationId,
 } from "./types"
 
 type NavSnap = {
@@ -26,7 +28,7 @@ export default function ScreenBoard() {
   const [items, setItems] = useState<ScreenItem[]>([])
   const [status, setStatus] = useState<BossStatus | null>(null)
   const [city, setCity] = useState<CityPage>("杭州")
-  const [stage, setStage] = useState(1)
+  const [station, setStation] = useState<StationId>("rule")
   const [query, setQuery] = useState("")
   const [onlyStar, setOnlyStar] = useState(false)
   const [stars, setStars] = useState<Set<string>>(() => new Set())
@@ -47,7 +49,7 @@ export default function ScreenBoard() {
       ])
       if (!resultsRes.ok) throw new Error("results")
       const data: { items?: ScreenItem[] } = await resultsRes.json()
-      setItems(Array.isArray(data.items) ? data.items : [])
+      setItems((Array.isArray(data.items) ? data.items : []).filter(isPlaced))
       if (statusRes.ok) {
         setStatus(await statusRes.json())
       }
@@ -85,7 +87,10 @@ export default function ScreenBoard() {
 
   const cityCounts = useMemo(() => {
     const m: Record<CityPage, number> = { 杭州: 0, 上海: 0, 其它: 0 }
-    for (const it of items) m[cityOf(it)] += 1
+    for (const it of items) {
+      const c = cityOf(it)
+      if (c) m[c] += 1
+    }
     return m
   }, [items])
 
@@ -93,11 +98,11 @@ export default function ScreenBoard() {
     const q = deferredQuery.trim().toLowerCase()
     const out: ScreenItem[] = []
     for (const it of items) {
-      if (cityOf(it) !== city) continue
+      if (cityOf(it) !== city || !stationOf(it)) continue
       const k = jobKey(it)
       if (onlyStar && !stars.has(k)) continue
       if (q) {
-        const blob = [it.company, it.job, it.reason, it.keyword, it.status, it.area, it.active]
+        const blob = [it.company, it.job, it.reason, it.keyword, it.area, it.active]
           .concat(it.keywords || [])
           .join(" ")
           .toLowerCase()
@@ -108,19 +113,22 @@ export default function ScreenBoard() {
     return out
   }, [items, city, onlyStar, stars, deferredQuery])
 
-  const stageCounts = useMemo(() => {
-    const m = [0, 0, 0, 0]
-    for (const it of inCity) m[columnOf(it) - 1] += 1
+  const stationCounts = useMemo(() => {
+    const m: Record<StationId, number> = { rule: 0, ai: 0, wait: 0, keep: 0 }
+    for (const it of inCity) {
+      const s = stationOf(it)
+      if (s) m[s] += 1
+    }
     return m
   }, [inCity])
 
   const ranked = useMemo(() => {
-    const ofStage: ScreenItem[] = []
+    const ofStation: ScreenItem[] = []
     for (const it of inCity) {
-      if (columnOf(it) === stage) ofStage.push(it)
+      if (stationOf(it) === station) ofStation.push(it)
     }
-    return sortByReasonGroup(ofStage)
-  }, [inCity, stage])
+    return sortByReasonGroup(ofStation)
+  }, [inCity, station])
 
   useEffect(() => {
     const measure = () => setPageSize(pageSizeForViewport(window.innerWidth, window.innerHeight))
@@ -141,7 +149,7 @@ export default function ScreenBoard() {
     setPage(1)
     setHi(0)
     setJdOpenKey(null)
-  }, [city, stage, deferredQuery, onlyStar])
+  }, [city, station, deferredQuery, onlyStar])
 
   useEffect(() => {
     setPage((p) => Math.min(p, totalPages))
@@ -196,7 +204,8 @@ export default function ScreenBoard() {
         return
       }
       if (key === "1" || key === "2" || key === "3" || key === "4") {
-        setStage(Number(key))
+        const next = STATIONS[Number(key) - 1]
+        if (next) setStation(next.id)
         return
       }
       if (key === "s" || key === " ") {
@@ -228,7 +237,7 @@ export default function ScreenBoard() {
     return () => window.removeEventListener("keydown", onKey)
   }, [onToggleStar])
 
-  const running = Boolean(status?.isRunning || status?.running)
+  const running = Boolean(status?.isRunning)
   const needHuman = Boolean(status?.needHuman)
 
   return (
@@ -239,7 +248,7 @@ export default function ScreenBoard() {
             <button
               key={p}
               type="button"
-              className={city === p ? "tab is-on" : "tab"}
+              className={city === p ? "tab city is-on" : "tab city"}
               onClick={() => setCity(p)}
             >
               {p}
@@ -248,19 +257,19 @@ export default function ScreenBoard() {
           ))}
         </div>
         <div className="tabs">
-          {STAGES.map((def, idx) => (
+          {STATIONS.map((def) => (
             <button
               key={def.id}
               type="button"
-              className={stage === def.id ? "tab is-on" : "tab"}
-              onClick={() => setStage(def.id)}
+              className={station === def.id ? `tab ${def.tone} is-on` : `tab ${def.tone}`}
+              onClick={() => setStation(def.id)}
             >
               {def.title}
-              <span className="n">{stageCounts[idx]}</span>
+              <span className="n">{stationCounts[def.id]}</span>
             </button>
           ))}
         </div>
-        <span className="status">
+        <span className={offline ? "status is-off" : running ? "status is-run" : "status"}>
           <b>{offline ? "连不上 9527" : running ? "筛选进行中" : "空闲"}</b>
           <span className="n"> {items.length}</span>
         </span>
@@ -299,7 +308,7 @@ export default function ScreenBoard() {
       </div>
 
       <div className={stale ? "stale" : undefined}>
-        <StageTable
+        <StationTable
           items={ranked}
           page={safePage}
           pageSize={pageSize}

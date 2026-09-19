@@ -65,7 +65,7 @@ HR 丢来官网 / Moka / 北森链接 → 改走专属网申，不是 Boss 直�
 
 | 工具 | 源 | 动作 | 说明 |
 |---|---|---|---|
-| `loks666/get_jobs` | https://github.com/loks666/get_jobs | Playwright + Cookie。筛选或开聊 + 图简历 | ~8.5k；2026-09-16 仍更。本机 `SCREEN_ONLY`。搜索杭州+上海；列表滚到底（停条件看已收获张数，不看当前 DOM）。规则只在列表（HR 近 3 天有文案才判、外包猎头字面、黑名单）；城市只分页（文案含杭州/上海，不按区县）。点卡和一岗主键用列表 `encryptId`。标题/JD 用 CPA `deepseek-v4.1-flash`（外包/猎头/驻场仍由 CPA 看 JD）。其它城市不点详情。词间和城间冷却 5 分钟；`wait_time` 下限 18s。人机验证须人工确认或验证消失才继续，不 15 秒自动点下一张。对照页本仓 `screen/` → `http://localhost:6867`（城市分页 × 停驻：列表规则 / 列表 CPA / 详情 / CPA 保留；数据读 get_jobs `:9527`）。`screen-results.jsonl` 一岗一行。本人对照圈岗，对话里不逐岗。偏好在仓外 `candidate-profile.txt` |
+| `loks666/get_jobs` | https://github.com/loks666/get_jobs | Playwright + Cookie。筛选或开聊 + 图简历 | ~8.5k；2026-09-16 仍更。本机 `SCREEN_ONLY`。筛选规则与停驻见 [ADR 0005](adr/0005-boss-list-rules-city-pages.md)、[ADR 0010](adr/0010-screen-stations.md)。对照页本仓 `screen/` → `http://localhost:6867`，数据 `:9527`。偏好在仓外 `candidate-profile.txt` |
 
 ## 不进正文
 
