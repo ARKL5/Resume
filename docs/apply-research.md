@@ -1,76 +1,124 @@
-# 渠道结论
+# 投递资源
 
-调研日期：2026-09-18。本文件只留分类结论。试跑步骤见投递流水技能。要对证时打开来源 URL，不在本仓复述协议原文或商店全文。
+再核：2026-09-19。工具 / 渠道事实只写这一份。
 
-## 本仓采用
+渠道只有两类：企业 / ATS **专属网申**，Boss **立即沟通**。Boss「网申·直投」跳过。实习僧、智联、51、猎聘、拉勾、应届生、高校 24365 不投。
 
-| 档 | 工具 | 动作 |
-|---|---|---|
-| 档 1 | 牛客网申助手 | 企业官网结构化字段只填表 |
-| 档 2 | 塔塔网申；对照可用超级网申 | 只填表，核对档 1 字段 |
-| 点投 | 无插件 | 实习僧 / 51Job / 应届生 / 高校 24365 人手点 |
-| 档 3 | 无官方开聊插件 | 用户浏览器发约定第一句 + 简历；HR 回了用户接手 |
+可信：源能打开、2026 仍更新或商店在架、能说清权限和动作。远控 IP、停更约一年、评价普遍不能用的不进用法。
 
-牛客「一键投递全网职位」（绑定各司官网账号）不用。超级网申若注入智联 / 51Job / 应届生页面，对那三站仍是未经许可的第三方插件；档 2 只用在企业官网对照。
+本机可跑代聊 / 代提交。登录态接法不限，以能跑通为准。秘密不提交进 git。要对证时打开来源 URL。
 
-## 渠道 × 投递模型
+## 先用这些
 
-| 渠道 | 模型 | 公开上限 / 形态 |
-|---|---|---|
-| 企业官网网申（阿里 / 蚂蚁 / 字节校园 / 网易集团与互娱） | 点投（填表） | 阿里每 BG 1 次、最多 2 意向。蚂蚁单次 2 意向，可否多次以当季 FAQ 为准。四家公开页均为自研 ATS，不是北森 / Moka |
-| 实习僧 | 点投（「投个简历」） | 未找到官方站内批量投。沟通不是前置 |
-| 智联校园 | 点投（一司一表） | 申请表双向同步只减重复填。App「智能投递」：7 日 × 每天最多 5，仅职位优选 |
-| 51Job / 应届生 | 点投 | 主站「立即投递」；兼职实习子频道可能混沟通按钮 |
-| Boss | 默认开聊；仅「网申·直投」校招岗可点投 | 开聊不是申请。无官方打招呼插件 |
-| 猎聘 | 点投与开聊分开 | 点「投简历」才算申请 |
-| 牛客站内 | 点投 | 网申助手填的是企业官网，不是牛客站内海投 |
-| 高校就业网 / 浙江 24365 | 点投 | 学号登录。未找到填表脚本 |
-| 拉勾 | 协议含收发简历 | 2026-09-18 主站 WAF，按钮未钉死 |
-| 其他公司北森 / Moka 门户 | 点投（网申表） | URL 常见 `mokahr.com` 或北森校园门户 |
+| 目的 | 用 |
+|---|---|
+| 网申只填 | Edge **牛客网申助手** |
+| 北森 / Moka 填不动 | **塔塔网申**；再不行求职喵或 OfferLink |
+| 网申真提交 | `HA7CH/job-pro` |
+| Boss 代聊 | `loks666/get_jobs` |
+| Boss 要桌面 UI | `geekgeekrun/geekgeekrun` |
+| Boss 要浏览器扩展 | Ocyss `boss-helper` GitHub 侧载 |
 
-## 工具分类
+## 专属网申
 
-### 只填表（提交留给本人）
+公开没有维护中的阿里 / 字节 / 网易公司专用填表油猴。能用的是泛填扩展，或 `job-pro` 对接自研站 / 北森 / Moka / 飞书。滴滴校园入口跳 **Moka**。
 
-| 工具 | 身份 | 开放题 | 点名 |
+校园站次数（填表前看官网 FAQ）：字节校招全年 4 次、同时最多 2 岗；阿里每 BG 最多 2 意向、投后不可改；百度同项目一次 1 岗。
+
+开放题只写 [口述素材](../.notes/oral-source-material.md) 能撑住的句子。
+
+### 只填表
+
+| 工具 | 源 | 点名 | 说明 |
 |---|---|---|---|
-| 牛客网申助手 | 牛客官方 Chrome / Edge | 官方要求本人写；只处理有标准答案的字段 | 字节、腾讯、阿里、美团、百度、京东、快手、网易、滴滴、小红书等招聘官网 |
-| 实习僧网申助手 | 实习僧官方 | 商店未写生成开放题 | 300+ 企业网申。不是站内「投个简历」 |
-| 超级网申 | 超级简历官方；对智联 / 51Job / 应届生仍是第三方 | 商店已核字段列表无开放题 | 应届生、智联、前程无忧、企业官方校招 |
-| 塔塔网申 | 第三方 | 开放题自动生成未在官网正文钉死 | 评价常点名北森 / Moka |
-| TalenCat 网申助手 | 第三方 | FAQ 声称按 JD 生成开放题草稿 | 北森、Moka、51Job、Workday。明确不支持智联校园 |
-| 求职方舟 | 第三方 | 商店未钉死是否生成开放题 | 「500+ 企业网申」 |
+| 牛客网申助手 | Edge `macoagnpgdmmcpnkpmiplpfompjkfdbe`。Chrome 商店无同名。介绍页 https://www.nowcoder.com/my/resume-plugin-intro 会渲染成 **NowClaw** 桌面端，不要从该页下安装包 | 字节、腾讯、阿里、美团、百度、京东、快手、网易、滴滴、小红书等 | 官方帖：只填有标准答案的字段。Edge v1.0.8（2026-08-12），约 3.3 万 |
+| 塔塔网申 | https://www.tatawangshen.com/ ；Chrome 商店 | 评价常点北森 / Moka | v0.8.3（2026-09-17）。评价：只能填、开放题会乱编。不买人工代投 |
+| OfferLink | Edge `ciahffmjmolgknpmafahjanlfoblbofk` | 腾讯 / 阿里 / 字节 + Moka / 飞书 / 北森 / 用友大易 | 约 1.3 万。按钮「自动填充此页面」 |
+| 求职喵 / 填填鸭 | 同一 Edge id `pmnkgkbolhdhgacoilieacaefhbpabcp` | **北森 / Moka / 大易** | v1.2.5（2026-09-06），约 784。要登录 + 云端。商店还写 51Job，那页不用于本仓渠道 |
+| Resume Pro | https://github.com/TshyGO/resume-form-assistant-plugin | 泛企业网申 | ~95 star；Release 2026-09-05。Excel 模板 + 页内注入 |
+| 职聘通 zip | https://ououguai-cloud.github.io/job-hunter/extension.html | 任意企业官网 | 低权限只填。同站「一键投递引擎」是另一套 |
+| TalenCat | Chrome `hecdlpbbjhibhneefbdbcgbjclomoaif` | 泛 ATS | 明文不代提交；开放题要人改 |
 
-TalenCat / 任何 AI 开放题草稿：提交前本人改。企业诚信条款惩虚假信息，不是禁填姓名学校。
+### 真提交
 
-### 不用（代提交 / 代聊 / 要账号）
+| 工具 | 源 | 打哪 | 说明 |
+|---|---|---|---|
+| `HA7CH/job-pro` | https://github.com/HA7CH/job-pro ；https://job.ha7ch.com/ | 文档约 50 适配器。自研：腾讯、字节、阿里、美团、小红书、京东、快手、百度、网易、滴滴、拼多多等。Moka / 北森 / 飞书 ATSX 见仓库 docs | MV3 导出登录态 + CLI。公开几乎唯一的校园 / ATS 真 POST。文档把滴滴写成自研；入口实际跳 Moka，以登录后页为准 |
+| 职聘通「一键投递引擎」 | 同职聘通站点 | 企业官网 | 本机 Node 开浏览器，提交前截图确认。不要和 zip 只填扩展当成一套 |
+| 牛客「一键投递全网职位」 | https://www.nowcoder.com/jobs/deliver-more-job | 绑定企业官网账号后批量 | 要官网账号 |
 
-公开功能含自动打招呼、代点投递、自动回 HR、自动登录或收集登录凭证：投投马、BOSS海投助手、职投助手、一键职达、GitHub 高星 Boss 开聊仓（boss-helper、ai-job、BossZhiPin_Job_Search）、付费代投。实习僧站内自动点投无高星专用油猴；最接近为低星 Super_Employee。
+人工代投（塔塔、求职方舟 100 家 ¥1500）不是脚本，不收录为用法。
 
-四站（实习僧 / Boss / 智联 / 51Job）禁未经许可的第三方工具接入。没有「只点提交、不聊天就允许」的例外。
+## Boss
 
-## 分平台：现成工具能代劳到哪
+默认按钮「立即沟通」= **开聊**，不是申请。附件简历须双方同意。无官方打招呼插件。用户协议禁未经许可第三方插件 / 外挂；本轮仍收录并跑代聊，以开上聊为准。
 
-| 平台 | 能代劳 | 必须本人 |
+HR 丢来官网 / Moka / 北森链接 → 改走专属网申，不是 Boss 直投。
+
+招呼语若脚本要默认文案，用：
+
+> 您好，浙江理工大学，常驻杭州，每周 5 天，随时到岗。独立做过零售客服 Agent：在 tau2-bench 上做确定性评测和优化，任务通过率80.7%（92/114），另有用户隔离的可靠 RAG 后端。期待沟通。
+
+数字只描述该 artifact，不是 HEAD KPI。
+
+### 代聊
+
+优先源码仍更新的；商店扩展次之。仓内若还带智联 / 51 / 猎聘，那些渠道不用。
+
+| 工具 | 源 | 动作 | 为何进正文 |
+|---|---|---|---|
+| `loks666/get_jobs` | https://github.com/loks666/get_jobs | Playwright + Cookie。Boss 打招呼 + 图简历 | ~8.5k；2026-09-16 仍更。**优先这套** |
+| `geekgeekrun/geekgeekrun` | https://github.com/geekgeekrun/geekgeekrun | Electron + Puppeteer。自动开聊、已读不回再聊 | ~2.4k。要桌面 UI 时用 |
+| Ocyss/boss-helper | https://github.com/Ocyss/boss-helper ；Chrome `ogkmgjbagackkdlcibcailacnncgonbn` | 批量沟通 + GPT 打招呼；要 cookies | GitHub v0.5.2（2026-08）。商店页有 unavailable 旁证，优先 GitHub 侧载 |
+| `yangfeng20/ai-job` | https://github.com/yangfeng20/ai-job ；GF `527733` | 批量沟通、发简历、换联系方式、AI 坐席 | GH ~677；GF ~1298；2026-05。旧作 Batch Push GF `468125` 已停适应当页 |
+| BOSS海投助手 | Chrome `ngmdahaccemclbokmkhbdbklikbohepn` | 批量投递与自动沟通 | ~491；v1.3.3 / 2026-09 |
+| 菜大师boss海投助手 | GF `581725` | 海投 | 188 装；2026-09-11 |
+| 觅星小臣 BOSS海投助手 | 脚本猫 `5970` | 海投 | ~4k 装；约 3 个月前仍更 |
+| BossHunter | https://github.com/shengjidaguai-china/BossHunter | CDP；确认后再发 | v2.4.0 / 2026-09 |
+| 一键职达 | https://yjzd.work/ | Boss 自动投 + AI 打招呼 / 自动回复；指纹浏览器 | 桌面商业软件。13 平台里只用 Boss |
+| 职投助手 ZhiTou | Chrome `nffekoimgbildcbhnhgnncdgbkoblidc` | 自动招呼；目前 Boss | ~141 |
+| AI工作快搜 | Chrome `habgifainjngdknnhjhfigbdjkoealdi` | 自动投递 / 沟通 | ~202；cookies + webRequest |
+| `OpenFuckJob/FuckJob` | https://github.com/OpenFuckJob/FuckJob | Tauri；扫码、批量沟通 | 74 star |
+| 投投马 | Chrome `mbgdhklndilcojhbgaalelolcaiojleb` | 自动打招呼 | ~132；标 debugger |
+| 鹿鹿 Lulu | https://github.com/fanyangcloud/LuluAgent | Android 无障碍代沟通 | Releases 2026-09-14。本机是 Windows，只在要跑手机端时用 |
+
+### 只辅助、不代发
+
+| 工具 | 源 | 做什么 |
 |---|---|---|
-| 企业官网 / 北森 / Moka | 结构化字段（牛客 / 塔塔 / 超级网申等） | 意向、开放题、附件、诚信勾选、点提交 |
-| 阿里 / 蚂蚁 / 字节 / 网易 | 同上；插件声称覆盖这些自研页的标准字段 | 每家意向规则；开放题；提交。秋招用主身份 |
-| 实习僧站内 | 无合规代点 | 点「投个简历」 |
-| Boss 开聊 | 无官方工具 | 认是否「网申·直投」；第一句由用户发；HR 回复后的对话 |
-| Boss 网申·直投 | 官方表单复用 | 认标识、点官方按钮 |
-| 智联校园 | 官方申请表同步；超级网申声称填智联（违智联 ToS） | 每家检查后提交。TalenCat 不支持智联校园 |
-| 智联社招 | 官方智能投递（7×5） | 先设意向 |
-| 51Job / 应届生 | 完善在线简历后手点 | 点「立即投递」 |
-| 猎聘 | 无合规代点 | 点「投简历」 |
-| 高校 / 24365 | 无脚本 | 学号登录后点投 |
-| 拉勾 | 未验证 | 本人过验证后看按钮 |
+| AI求职助理 | Chrome `bhoegllmjgnpgnkfephahbibajklkaag` | 生成招呼，明文不自动发送 |
+| Job Hunter AI | Chrome `lljgdcaoaonebbcmdjglkkmejbjmkfbe` | 填进对话框，商店写不自动发送 |
+| BOSS直聘-外包标注 | Greasy Fork，作者「一袋米」，2026-09 | 标外包 |
+| JD/HR 提取 | GF `546240` | 提取信息 |
+| 岗位发布时间 | GF `541585` | 显示时间 |
+
+## 不进正文
+
+| 类 | 例子 | 原因 |
+|---|---|---|
+| 远控 | GF `569496` / 脚本猫 `5604`（`@connect 119.45.5.172`） | 远程 IP |
+| 停更 | GF `428962`（2021）、`464791`（2023）、忒星 `481022`（2024-07）、Ocyss 油猴档、实习僧网申助手（2025-10）、超级网申（2025-09） | 超过约一年或作者声明改扩展 |
+| 评价不能用 | 鼠鼠求职 Chrome `nfecpnkjbaecdcljillneejebdhogbel` | 商店评价多写不能用 |
+| 存活未钉死 | 脚本猫曾 `5839` Yangshengzhou | GF 已删；猫站时通时 404 |
+| 无公开源码 | NowClaw | 牛客介绍页桌面端，不优先 |
+| 自配映射、未钉 2026 维护 | jobfill、auto-ws、OpenJobAutofill、Job-Submit、1lck | 侧载只填，不是本轮优先 |
+| 错渠道 | 51 / 智联 / 应届生 / 实习僧站内代投 | 本轮不投这些渠道 |
+| HR 端 | Boss Plus、Boss Say Hi、GF `422508` | 反向，不是求职 |
+| 1 commit / 开放题乱写 | CampusApply-Agent | 不可信 |
+
+## 本机怎么用
+
+1. **网申填表：** Edge 装牛客网申助手。北森 / Moka 再试塔塔或求职喵。
+2. **网申真提交：** `job-pro`。登录态用它的 session 扩展、调试端口或本地导出，哪种能跑通用哪种。
+3. **Boss 代聊：** 优先 `get_jobs`。要 UI 用 geekgeekrun。要扩展用 Ocyss 侧载。
+4. 登录态接法不限。不要 `git add` cookie / 密码 / session 文件。
 
 ## 来源
 
-协议：https://www.shixiseng.com/rule ；https://www.zhipin.com/web/common/protocol/protocol-2019-09-30.html ；https://rd6.zhaopin.com/aboutus/legal/service ；https://www.51job.com/bo/service.php
+协议：https://www.zhipin.com/web/common/protocol/protocol-2019-09-30.html
 
-官方产品：https://www.nowcoder.com/my/resume-plugin-intro ；https://www.nowcoder.com/jobs/deliver-more-job ；https://xiaoyuan.zhaopin.com/PublicPage ；https://campus-talent.alibaba.com/campus/trends?activeTab=faq ；https://view.inews.qq.com/a/20260304A045PY00
+网申填表：https://microsoftedge.microsoft.com/addons/detail/牛客网申助手/macoagnpgdmmcpnkpmiplpfompjkfdbe ；https://www.tatawangshen.com/ ；https://microsoftedge.microsoft.com/addons/detail/offerlink-简历自动填写助手/ciahffmjmolgknpmafahjanlfoblbofk ；https://microsoftedge.microsoft.com/addons/detail/求职喵·网申自动填简历神器/pmnkgkbolhdhgacoilieacaefhbpabcp ；https://github.com/TshyGO/resume-form-assistant-plugin ；https://github.com/HA7CH/job-pro
 
-填表：https://microsoftedge.microsoft.com/addons/detail/牛客网申助手/macoagnpgdmmcpnkpmiplpfompjkfdbe ；https://www.tatawangshen.com/ ；https://talencat.cn/job-application-assistant ；https://chromewebstore.google.com/detail/超级网申/fopeoigcnpfpoibmifmjdpflbmlebpdo
+Boss：https://github.com/loks666/get_jobs ；https://github.com/geekgeekrun/geekgeekrun ；https://github.com/Ocyss/boss-helper ；https://github.com/yangfeng20/ai-job ；https://github.com/shengjidaguai-china/BossHunter ；https://yjzd.work/ ；https://greasyfork.org/zh-CN/scripts/by-site/zhipin.com ；https://scriptcat.org/zh-CN/script-show-page/5970
 
-校招入口：https://campus-talent.alibaba.com/ ；https://talent.antgroup.com/campus/home ；https://jobs.bytedance.com/campus/position ；https://campus.163.com/ ；https://game.campus.163.com/ ；https://jyb.zstu.edu.cn/ ；http://24365.zj.smartedu.cn/jyxt-v5/jyweb/webIndex.zf
+校招入口（网申）：https://campus-talent.alibaba.com/ ；https://jobs.bytedance.com/campus/position ；https://campus.163.com/ ；https://join.qq.com/ ；http://campus.didiglobal.com
