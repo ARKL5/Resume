@@ -1,6 +1,6 @@
 # Engineering standards
 
-改代码或设计之前、以及审查时使用。和项目约束、自动化检查一起看。用词以 [`CONTEXT.md`](../../CONTEXT.md) 为准。
+改代码或设计之前、以及审查时使用。
 
 ## Baseline
 
@@ -12,14 +12,9 @@
 
 ## Project constraints
 
-- **两份投递件。** 列看投递入口，不按 JD 另写一份。理由：[`docs/adr/0001-two-artifacts-by-entry.md`](../adr/0001-two-artifacts-by-entry.md)。
-- **渠道事实一份。** 只写 [`docs/apply-research.md`](../apply-research.md)。理由：[`docs/adr/0002-research-in-docs.md`](../adr/0002-research-in-docs.md)。
-- **Boss 在仓外。** 筛选、代聊只改 `D:\38993\Documents\get_jobs`。对照页 UI 在本仓 `screen/`。本仓仍是投递件，不是代聊后端。clone 只留 Boss：无原配置 UI，其它渠道接线拆除。理由：[`docs/adr/0004-boss-get-jobs-outside-repo.md`](../adr/0004-boss-get-jobs-outside-repo.md)、[`docs/adr/0009-screen-own-page.md`](../adr/0009-screen-own-page.md)、[`docs/adr/0011-get-jobs-boss-only.md`](../adr/0011-get-jobs-boss-only.md)。
-- **筛选与对照页。** 规则在列表（含岗位名运营/前端等字面），城市只分页；其余标题走标题 AI，JD 走 JD AI。对照页四处停驻：规则 / AI / 待读 / 保留。词用停驻 / 圈岗 / 城市分页 / 待读 / 停因。不要写圈阅、CPA、漏斗列。理由：ADR 0005、0006、0009、0010。
-- **证据。** 投递件经历与数字能在仓库或口述素材核对。开放题是投递件正文的真子集。
-- **秘密与 git。** 秘密不进 git。只在本机 commit。
-- **开聊。** 须本人明确说。对照页和 `SCREEN_ONLY` 都不开聊。
-- **运行时。** 本仓 Python 用根目录 `.venv`。对照页 `screen/` 用 `npm run dev`（`:6867`）。get_jobs 用 Temurin 21。改对照页时读 frontend-design 与 vercel-react-best-practices。
+- **投递件。** 不按 JD 另写一份。岗位锁国内 Agent / LLM 应用（含要写代码的大模型应用）；城市杭州，JD 写明可远程才加。不改 PDF 项目 bullet。
+- **边界。** 筛选与代聊只改 `boss/`，对照页只改 `screen/`。
+- **证据。** 经历与数字能在仓库或口述素材核对。开放题只写投递件正文里已有的内容。
 
 ## Smells
 
@@ -37,7 +32,3 @@
 - **Message Chains:** 遍历把实现细节暴露出去。
 - **Middle Man:** 委托既不加策略也不构成有用边界。
 - **Refused Bequest:** 接口契约未兑现，或该改组合。
-
-## Verification
-
-按 [`AGENTS.md`](../../AGENTS.md) 的 Verification 跑适用检查，再对照本文件审 diff。报告结果和未解决问题。
