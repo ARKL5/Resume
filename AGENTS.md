@@ -1,6 +1,6 @@
 # Project
 
-个人求职投递件与投递进度维护。所有回复使用简体中文。命令用 PowerShell 7（`pwsh`）。Python 用仓库 `uv`。git 只在本机 commit。
+个人求职投递件与投递进度维护。命令用 PowerShell 7（`pwsh`）。Python 用仓库 `uv`。git 只在本机 commit。
 
 ## Required reading
 
@@ -10,18 +10,9 @@
 
 **决策**（开聊、Boss 筛选、对照页之前）：[`docs/adr/`](docs/adr/)
 
-**投递件**（改 JSON、PDF、headline、实习/校招列之前）：[`resume/`](resume/)
-
-**渲染**（改简历数据、重渲染、或声称投递件完成时）：[`.agents/skills/qiaomu-campus-resume/SKILL.md`](.agents/skills/qiaomu-campus-resume/SKILL.md)
+**渲染**（改投递件、重渲染、或声称投递件完成时）：[`.agents/skills/qiaomu-campus-resume/SKILL.md`](.agents/skills/qiaomu-campus-resume/SKILL.md)
 
 **对照页实现**（改 `screen/` 之前）：[`.agents/skills/frontend-design/SKILL.md`](.agents/skills/frontend-design/SKILL.md) 与 [`.agents/skills/vercel-react-best-practices/SKILL.md`](.agents/skills/vercel-react-best-practices/SKILL.md)
-
-**临时文件**（口述、项目底稿）：[`.notes/`](.notes/)
-
-## Project constraints
-
-- 开聊须本人明确说。
-- 不是招聘平台、不是业务后端。
 
 ## Verification
 
