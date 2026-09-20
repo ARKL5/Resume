@@ -61,11 +61,11 @@ HR 丢来官网 / Moka / 北森链接 → 改走专属网申，不是 Boss 直�
 
 ### 代聊
 
-只维护仓外 `D:\38993\Documents\get_jobs`。Playwright 点 Boss 网页（搜岗、读 JD、立即沟通、传图简历），没有官方打招呼接口。先筛选，开聊另说。上游若还带智联 / 51 / 猎聘，那些渠道不用。缺口改这份 clone，不换工具。
+只维护仓外 `D:\38993\Documents\get_jobs`。Playwright 点 Boss 网页（搜岗、读 JD、立即沟通、发招呼），没有官方打招呼接口。先筛选，开聊须本人明确说并对当场点名的岗代聊。clone 只留 Boss：原配置 UI 和智联 / 51 / 猎聘接线拆除。缺口改这份 clone，不换工具。见 [ADR 0011](adr/0011-get-jobs-boss-only.md)。
 
 | 工具 | 源 | 动作 | 说明 |
 |---|---|---|---|
-| `loks666/get_jobs` | https://github.com/loks666/get_jobs | Playwright + Cookie。筛选或开聊 + 图简历 | ~8.5k；2026-09-16 仍更。本机 `SCREEN_ONLY`。筛选规则与停驻见 [ADR 0005](adr/0005-boss-list-rules-city-pages.md)、[ADR 0010](adr/0010-screen-stations.md)。对照页本仓 `screen/` → `http://localhost:6867`，数据 `:9527`。偏好在仓外 `candidate-profile.txt` |
+| `loks666/get_jobs` | https://github.com/loks666/get_jobs | Playwright + Cookie。本机只留 Boss 筛选与代聊 | ~8.5k；2026-09-16 仍更。本机 `SCREEN_ONLY`。切面见 [ADR 0011](adr/0011-get-jobs-boss-only.md)。筛选规则与停驻见 [ADR 0005](adr/0005-boss-list-rules-city-pages.md)、[ADR 0010](adr/0010-screen-stations.md)。对照页本仓 `screen/` → `http://localhost:6867`，数据 `:9527`。非密钥配置与偏好在仓外文件，密钥在 sqlite |
 
 ## 不进正文
 
