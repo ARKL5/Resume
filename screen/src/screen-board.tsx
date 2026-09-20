@@ -279,7 +279,7 @@ export default function ScreenBoard() {
         <div className="human">
           <div>
             <p>需要你处理人机验证或登录</p>
-            <p className="sub">{status?.needHumanReason || "请到 get_jobs 拉起的 Chrome 处理。"}</p>
+            <p className="sub">{status?.needHumanReason || "请到 Boss 拉起的 Chrome 处理。"}</p>
           </div>
           <button type="button" onClick={() => void ackHuman()}>
             我处理好了，继续

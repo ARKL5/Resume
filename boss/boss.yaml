@@ -1,0 +1,160 @@
+# Agent 改这一份。对照页不改配置。SCREEN_ONLY 在代码里，这里没有开聊开关。
+keywords:
+  - AI Agent
+  - 智能体开发
+cities:
+  - 杭州
+  - 上海
+jobType: 实习
+experience:
+  - 在校生
+  - 应届毕业生
+degree:
+  - 本科
+industry: []
+salary: []
+scale: []
+stage: []
+waitTime: 18
+keywordGapSeconds: 300
+sendImgResume: false
+screenResults: screen-trial.jsonl
+detailLimit: 0
+
+ai:
+  baseUrl: http://127.0.0.1:8317/v1
+  apiKey: ""
+  model: deepseek-v4-flash
+
+greeting: |
+  您好，浙江理工大学，常驻杭州，每周 5 天，随时到岗。独立做过零售客服 Agent：在 tau2-bench 上做确定性评测和优化，任务通过率80.7%（92/114），另有用户隔离的可靠 RAG 后端。期待沟通。
+
+blacklist:
+  companies: []
+  jobs: []
+  recruiters: []
+
+codes:
+  city:
+    杭州: "101210100"
+    上海: "101020100"
+  jobType:
+    实习: "1902"
+  experience:
+    在校生: "108"
+    应届毕业生: "102"
+  degree:
+    本科: "203"
+
+rules:
+  companyTokens:
+    - 外包
+    - 派遣
+    - 代招
+    - 驻场
+    - 猎头
+  jobTitleTokens:
+    - 外包
+    - 派遣
+    - 代招
+    - 驻场
+    - 猎头
+    - 招聘顾问
+    - 运营
+    - 标注
+    - 训练
+    - 销售
+    - 客服
+    - 前端
+    - 客户端
+
+candidateProfile: |
+  # 候选人
+  姓名：王中宇。浙江理工大学本科，智能科学与技术，2023.09–2027.06。常驻杭州。实习每周 5 天、随时到岗。
+  GitHub：https://github.com/ARKL5
+  奖项：2025 中国移动杯·第一届浙江省大学生人工智能竞赛三等奖。
+  技能：Tool Calling、RAG、Hybrid Search、Prompt Engineering、Pydantic、JSON Schema、PostgreSQL、pgvector、RRF、Python、FastAPI、SQLAlchemy、SSE、MinIO、Docker、pytest。
+
+  # 本轮筛选地理
+  Boss 搜索城市：杭州、上海。工作地只分页（杭州 / 上海 / 其它），不要因为城市 keep=false。
+  分页只看文案是否含「杭州」或「上海」四个字，不按区县。其它城市仍做列表判断，不点详情。空工作地、只写区名进其它页。
+
+  # 优先保留
+  - 投递入口是实习（含「实习+转正」但按实习投的）。
+  - 主方向：Python，以及 AI 实习（Agent / 智能体应用、RAG / 知识库、LLM 应用后端 / 大模型应用研发）。
+  - 日常工作会频繁使用 AI 的实习也可以 keep，即使写代码不是主业；仍须是技术向，不是运营/标注/训练。
+  - 本人更认 Agent（工具/编排/评测），觉得知识库/RAG 实习常像数据工程。本轮不要只因为岗是 RAG/知识库就 keep=false；也不要用「RAG」「知识库」当搜索词扩量。
+
+  # 淘汰（keep=false）
+  - 运营、内容运营、产品助理、销售、纯实施、驻场咨询、客服。
+  - 外包、人力派遣、代招。招聘者头衔或岗位名含「猎头」「招聘顾问」。
+  - 纯标注、数据标注、外包标注、影视训练、训练师、看视频写描述、众包。
+  - 非技术岗。纯前端 / 客户端 / 移动。纯算法科研、训基础模型、发论文。
+  - 明显社招全职、不要实习生。JD 只要硕士、或要求 3 年+ 经验却当实习招。
+  - 只有「大模型」字样、实际是运营 / 训练 / 标注。
+
+  # 不参与 keep
+  - 出勤天数、薪资、是否承诺转正。不要求必须写转正机会。
+
+  # 项目 1：零售客服 Agent 安全执行与评测（独立个人项目，2026.06–2026.08）
+  仓库：https://github.com/ARKL5/retail-bench
+  这是本地零售客服 Agent 的评测仪器，不是上线客服产品，也不是「做过一套生产客服」。
+  技术：Python、Pydantic v2、Tool Calling、pytest。
+  要点：
+  - 工具调用里「口头答应但未写库」和「越权乱写库」：先预演、再授权、后提交。preview 只读报价不改世界；propose 绑定不可变提案；结构化授权通过后才 commit。拒绝则世界不变。
+  - 公开目录正好 10 个业务工具。参数来自 Pydantic v2（frozen=True, extra="forbid"）。非法调用变成结构化错误观察回给 Agent，attempt 不因此终止。
+  - 不用 LLM-as-a-judge。按 tau2-bench 任务设定做端到端确定性评测：金额用整数分；Task Pass 必须同时满足受控完成、世界指纹一致、终局处置与 Expected Attempt Outcome 一致。
+  - 冻结配置一次 live full-114：92/114（80.7%）。artifact：20260811T165150Z-8d8046d5。这是当时配置的一次成绩，不是 HEAD 现行 KPI，也不要和其他数字连成涨分曲线。
+  - 题目和目标订单冻结后，做过 System Prompt / Tool Description / policy 对照；长 prompt 对困难边界边际效用递减，留了失败归因。不要说成「已上线 tau2」或「稳定通过率」。
+
+  # 项目 2：用户隔离的高可靠 RAG 知识库后端（独立个人项目，2026.06–2026.08）
+  仓库：https://github.com/ARKL5/rag-backend
+  这是可信本机、多用户所有者隔离的私人知识库 RAG 后端作品集。默认绑 127.0.0.1，不是公网 SaaS，不要写成多租户/RBAC 产品。
+  技术：FastAPI、PostgreSQL、pgvector、SQLAlchemy、MinIO、Docker。
+  要点：
+  - 异步索引发布：锁序 知识库 FOR SHARE → 文档/任务 FOR UPDATE；同一事务写入切块并切换当前索引。热重建时检索仍扫旧指针；过期任务不能覆盖当前索引。
+  - 检索 REPEATABLE READ 固定当次索引。Hybrid Search：pgvector 密集 + jieba/PG 全文稀疏，各进 Savepoint；一路失败则降级，双路失败返回 search_unavailable 而不是空成功。双路都有结果时 RRF（k=60）。
+  - MinIO 只存原文：先 put，数据库失败后补偿 delete。Markdown 保留标题路径；PDF 按物理页切。CPU 解析进线程池，不阻塞 FastAPI 事件循环。
+  - FastAPI SSE 流式问答；听到客户端断开就取消后台生成。引用必须能指回本轮真实文档，提交时锁复核证据文档还在，避免编造引用。
+  - 规模可讲：约 7.2k 源码、8.8k 测试、139 条测试、4 份 ADR。不要编 QPS/用户量，不要说「热重建期间问答也可用」（只证明检索可用 + 证据冻结）。
+
+  # 投这类岗的原因（给筛选器对齐，不是招呼语）
+  主方向是 Python + AI 实习：把模型接到真实工具和数据上（Agent 工具合同/授权/评测，或 RAG 索引与引用）。工作中会频繁用 AI 的技术实习也可以。不要运营/标注/训练，不要纯算法论文岗，不要外包/猎头代招。
+
+prompts:
+  title: |
+    你是求职筛选器。现在只有列表卡片上的岗位标题等少量信息，还没有 JD。
+    HR 近3天、外包/猎头字面、运营/标注/训练/销售/客服/前端/客户端、黑名单已用规则过完。城市只分页，不要因城市淘汰。
+    三态，不要编造未给出的信息。
+    短偏好：杭州/上海 Python + AI 实习；Agent/智能体应用优先。
+    搜索词：{keyword}
+    公司：{company}
+    岗位标题：{job}
+    click：标题已能看出是技术向开发/工程师/后端/Agent 实现实习，本可点 JD。
+    park：产品经理/产品运营/产品助理（即使带 Agent/AI）、纯算法科研、不确定。待读，不点 JD。
+    drop：不像实习、非技术、纯前端/客户端、或纯 Java/游戏/嵌入式且标题没有 AI/Agent。
+    只输出 JSON：{"action":"click或park或drop","reason":"不超过40字"}
+  jd: |
+    你是求职筛选器。只根据材料判断该实习是否值得候选人开聊。不要编造候选人经历或数字。
+    候选人偏好与简历：
+    {profile}
+    本次搜索词：{keyword}
+    公司：{company}
+    岗位：{job}
+    招聘者头衔：{recruiterTitle}
+    HR活跃：{hrActive}
+    工作地分页：{cityPage}（城市只分页，不要因城市 keep=false）
+    薪资/地区：{salary} / {area}
+    JD：
+    {jd}
+    HR 活跃不是近3天由规则处理，不要因 HR 活跃 keep=false。城市只分页，不要因城市 keep=false。根据 JD 和招聘者头衔判断职责。
+    - 须是实习（含实习+转正按实习投）。明显社招全职、不要实习生 → keep=false。
+    - JD 只要硕士、或要求 3 年+ 经验却当实习招 → keep=false。不要求承诺转正。
+    - 外包、派遣、代招、猎头/招聘顾问 → keep=false。
+    - 纯实施、驻场咨询（职责是驻场交付而不是开发）→ keep=false。
+    - 运营、内容、产品助理、销售、纯标注、影视训练/训练师、看视频写描述、众包、客服、非技术 → keep=false。
+    - 纯前端/客户端/移动、纯算法科研/训基础模型/发论文 → keep=false。
+    - keep=true 优先：Python 或 AI 实习，职责是 Agent/智能体、RAG/知识库、LLM 应用。不要因为岗是 RAG/知识库就 keep=false。
+    - 也可以 keep：日常工作会频繁使用 AI 的技术实习，即使写代码不是主业；仍不是运营/标注/影视训练。
+    - 出勤天数、薪资、城市不参与 keep。
+    只输出 JSON：{"keep":true或false,"reason":"不超过40字"}

@@ -6,3 +6,10 @@ __pycache__/
 .notes/
 screen/node_modules/
 screen/dist/
+resume/output/
+boss/browser-data/
+boss/build/
+boss/.gradle/
+boss/target/
+boss/screen-*.jsonl
+boss/opened-chats.jsonl
