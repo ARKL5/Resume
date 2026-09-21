@@ -241,12 +241,31 @@ public class LocalBossSettings {
         return s.isEmpty() ? "na" : s;
     }
 
+    /**
+     * 0 不点详情；负数不设上限；正数是本轮最多点几次。缺省按 0。
+     */
     public int detailLimit() {
         Integer n = loadSearch().getDetailLimit();
-        if (n == null || n < 0) {
-            return 0;
+        return n == null ? 0 : n;
+    }
+
+    /**
+     * yaml {@code onRisk}：{@code stop} 遇风控结束本轮，{@code wait} 暂停等人。
+     */
+    public boolean stopOnRisk() {
+        return "stop".equals(normalizedOnRisk());
+    }
+
+    public String normalizedOnRisk() {
+        String v = loadSearch().getOnRisk();
+        if (v == null || v.isBlank()) {
+            throw new IllegalStateException("boss.yaml 的 onRisk 不能为空，填 stop 或 wait");
         }
-        return n;
+        String t = v.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!"stop".equals(t) && !"wait".equals(t)) {
+            throw new IllegalStateException("boss.yaml 的 onRisk 只能是 stop 或 wait，现在是: " + v);
+        }
+        return t;
     }
 
     public int keywordGapSeconds() {
@@ -446,6 +465,7 @@ public class LocalBossSettings {
         private String screenResults = "";
         private String screenResultsDir = "";
         private Integer detailLimit = 0;
+        private String onRisk = "";
         private AiFile ai = new AiFile();
         private String greeting = "";
         private BlacklistFile blacklist = new BlacklistFile();

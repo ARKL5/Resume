@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 脚本搞不定时（人机验证、登录失效、详情读空）暂停并提醒本人。
+ * 人机验证、登录失效、详情读空时提醒本人。onRisk=wait 时暂停；onRisk=stop 时结束本轮。
  */
 @Slf4j
 @Component

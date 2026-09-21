@@ -100,9 +100,14 @@ public class BossConfig {
     private String waitTime;
 
     /**
-     * 一次开始筛选最多点多少次详情。0 表示不点 JD。
+     * 一次开始筛选最多点多少次详情。0 不点 JD，负数不设上限。
      */
     private Integer detailLimit;
+
+    /**
+     * 人机验证或风控页：stop 结束本轮，wait 暂停等人处理。
+     */
+    private String onRisk;
 
     /**
      * 词与词、城与城之间冷却秒数。

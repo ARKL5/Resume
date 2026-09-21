@@ -26,7 +26,8 @@ public class BossService {
         config.setFilterDeadHR(true);
         config.setSendImgResume(Boolean.TRUE.equals(file.getSendImgResume()));
         config.setWaitTime(file.getWaitTime() != null ? String.valueOf(file.getWaitTime()) : "18");
-        config.setDetailLimit(file.getDetailLimit() == null ? 0 : Math.max(0, file.getDetailLimit()));
+        config.setDetailLimit(file.getDetailLimit() == null ? 0 : file.getDetailLimit());
+        config.setOnRisk(localBossSettings.normalizedOnRisk());
         config.setKeywordGapSeconds(file.getKeywordGapSeconds() == null ? 300 : Math.max(0, file.getKeywordGapSeconds()));
         config.setKeywords(nonNullList(file.getKeywords()));
         config.setCityCode(toCodes("city", nonNullList(file.getCities())));

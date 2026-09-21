@@ -1,4 +1,5 @@
 # Agent 改这一份。对照页不改配置，只切换看哪份筛选结果。SCREEN_ONLY 在代码里，这里没有开聊开关。
+# detailLimit：-1 不设上限，0 不点 JD，正数是本轮最多点几次。onRisk：stop 遇人机/风控结束本轮，wait 暂停等人。
 keywords:
   - AI Agent
   - Agent开发
@@ -11,10 +12,7 @@ experience:
   - 应届毕业生
 degree:
   - 本科
-industry:
-  - 互联网
-  - 人工智能
-  - 电子商务
+industry: []
 salary: []
 scale: []
 stage: []
@@ -23,6 +21,7 @@ keywordGapSeconds: 60
 sendImgResume: false
 screenResultsDir: screen-results
 detailLimit: 0
+onRisk: stop
 
 ai:
   baseUrl: http://127.0.0.1:8317/v1

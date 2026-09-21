@@ -66,6 +66,8 @@ public class Boss {
     private ProgressCallback progressCallback;
     @Setter
     private Supplier<Boolean> shouldStopCallback;
+    @Setter
+    private Runnable requestStopCallback;
 
     private final List<Job> resultList = new ArrayList<>();
 
@@ -130,6 +132,10 @@ public class Boss {
      */
     public int execute() {
         beginFreshRun();
+        int limit = resolveDetailLimit();
+        log.info("本轮详情上限 {}，onRisk={}",
+                limit < 0 ? "无" : limit,
+                stopOnRisk() ? "stop" : "wait");
         hookListJsonOnce();
         List<String> cityCodes = config.getCityCode();
         for (int ci = 0; ci < cityCodes.size(); ci++) {
@@ -177,6 +183,9 @@ public class Boss {
             openKeywordLog(keyword);
             // 进列表页 + 等列表渲染，整段带重试
             openJobListWithRetry(keyword, url, cityCode);
+            if (stopped()) {
+                return;
+            }
 
             // 1. 滚到真正到底，边滚边收下卡片文本（列表可能虚拟化，滚完 DOM 里只剩末屏）
             Map<String, CardPreview> harvested = new LinkedHashMap<>();
@@ -198,8 +207,8 @@ public class Boss {
                 // 引用到已销毁的 frame（Object doesn't exist: frame@...），异常会顺着
                 // 当时在飞的那个调用抛出来。这类异常和调用本身无关，跳过这一轮继续滚就行。
                 try {
-                    if (pageNeedsHuman()) {
-                        waitForHuman("Boss 滚动列表时弹出人机验证或登录。请到 Boss 拉起的 Chrome 处理。");
+                    if (haltIfRisk("Boss 滚动列表时弹出人机验证或登录。")) {
+                        return;
                     }
                     // footer 可见不能立刻就当作"加载完了"：窗口最大化时首屏很短，
                     // 第一轮 footer 就是可见的。到底看已收获张数是否还在增加，
@@ -317,7 +326,8 @@ public class Boss {
                     () -> needTitleAi.stream()
                             .map(preview -> (Callable<AiOutcome>) () -> listTriageByTitle(keyword, preview))
                             .toList());
-            int remainingClicks = resolveDetailLimit() - detailClicksReserved;
+            int limit = resolveDetailLimit();
+            int remainingClicks = limit < 0 ? Integer.MAX_VALUE : limit - detailClicksReserved;
             for (int i = 0; i < needTitleAi.size(); i++) {
                 if (shouldStopCallback != null && Boolean.TRUE.equals(shouldStopCallback.get())) {
                     progressCallback.accept("用户取消投递", i, needTitleAi.size());
@@ -361,7 +371,7 @@ public class Boss {
             }
             log.info("【{}】列表{}张，本词点详情{}张（本次已占{}/上限{}）",
                     keyword, allCards.size(), worthClick.size(),
-                    detailClicksReserved, resolveDetailLimit());
+                    detailClicksReserved, limit < 0 ? "无" : limit);
 
             int detailClicks = 0;
             List<Future<?>> detailAiJobs = new ArrayList<>();
@@ -371,14 +381,17 @@ public class Boss {
                     progressCallback.accept("用户取消投递", 0, 0);
                     return;
                 }
-                if (pageNeedsHuman()) {
-                    waitForHuman("Boss 弹出人机验证或登录页。请到 Boss 拉起的 Chrome 处理。");
+                if (haltIfRisk("Boss 弹出人机验证或登录页。")) {
+                    return;
                 }
                 if (preview.encryptId == null || preview.encryptId.isBlank()) {
                     log.warn("卡片没有岗位ID，保持待读 | {} | {}", preview.company, preview.job);
                     continue;
                 }
                 Locator cardToClick = findCardScrolling(preview.encryptId);
+                if (stopped()) {
+                    return;
+                }
                 if (cardToClick == null) {
                     log.warn("找不到岗位ID对应卡片，保持待读 | {} | {} | {}",
                             preview.encryptId, preview.company, preview.job);
@@ -401,11 +414,10 @@ public class Boss {
                             clickTarget::click);
                     detailClicks++;
                 } catch (Throwable e) {
-                    if (pageNeedsHuman()) {
-                        waitForHuman("Boss 点详情时弹出验证。请到 Boss 拉起的 Chrome 处理。");
-                    } else {
-                        log.warn("等待岗位详情超时 | 公司：{} | 岗位：{}", preview.company, preview.job);
+                    if (haltIfRisk("Boss 点详情时弹出验证。")) {
+                        return;
                     }
+                    log.warn("等待岗位详情超时 | 公司：{} | 岗位：{}", preview.company, preview.job);
                     continue;
                 }
                 pauseBetweenJobs();
@@ -516,7 +528,9 @@ public class Boss {
                     emptyDetailStreak++;
                     log.warn("岗位详情为空 ({}/2) | url={}", emptyDetailStreak, safeUrl());
                     if (emptyDetailStreak >= 2 || pageNeedsHuman()) {
-                        waitForHuman("Boss 读不到岗位详情，多半是人机验证或页面卡住。请到 Boss 拉起的 Chrome 处理。");
+                        if (handleRisk("Boss 读不到岗位详情，多半是人机验证或页面卡住。")) {
+                            return;
+                        }
                         emptyDetailStreak = 0;
                     }
                     continue;
@@ -566,9 +580,8 @@ public class Boss {
                 }
                 postCount++;
 
-                if (pageNeedsHuman()) {
-                    log.warn("【{}】遍历过程中需要人工：{}", keyword, safeUrl());
-                    waitForHuman("Boss 弹出人机验证或登录页。请到 Boss 拉起的 Chrome 处理。");
+                if (haltIfRisk("Boss 弹出人机验证或登录页。")) {
+                    return;
                 }
             }
             for (Future<?> fut : detailAiJobs) {
@@ -781,9 +794,15 @@ public class Boss {
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
                 openJobList(keyword, targetUrl);
+                if (stopped()) {
+                    return;
+                }
                 waitForJobList();
                 return;
             } catch (RuntimeException e) {
+                if (stopped()) {
+                    return;
+                }
                 last = e;
                 log.warn("【{}】进入岗位列表失败（第{}/2次）：{}", keyword, attempt,
                         e.getMessage() == null ? e.toString() : e.getMessage().split("\n")[0]);
@@ -885,8 +904,8 @@ public class Boss {
             return;
         }
         if (isSecurityVerifyUrl(url) || pageNeedsHuman()) {
-            log.warn("【{}】进入岗位列表时需要人工：{}", keyword, url);
-            waitForHuman("Boss 进入列表前弹出验证或登录。请到 Boss 拉起的 Chrome 处理。");
+            log.warn("【{}】进入岗位列表时风控：{}", keyword, url);
+            handleRisk("Boss 进入列表前弹出验证或登录。");
         }
     }
 
@@ -1865,8 +1884,8 @@ public class Boss {
         try {
             detailPage.navigate(detailUrl);
             PlaywrightUtil.sleep(1);
-            if (pageNeedsHuman()) {
-                waitForHuman("Boss 弹出人机验证或登录页。请到 Boss 拉起的 Chrome 处理。");
+            if (haltIfRisk("Boss 弹出人机验证或登录页。")) {
+                return false;
             }
             Locator chatBtn = detailPage.locator("a.btn-startchat, a.op-btn-chat");
             boolean foundChatBtn = false;
@@ -2346,8 +2365,8 @@ public class Boss {
             page.evaluate("window.scrollTo(0, 0);");
             PlaywrightUtil.sleep(1);
             for (int i = 0; i < 80; i++) {
-                if (pageNeedsHuman()) {
-                    waitForHuman("Boss 找卡片时弹出人机验证或登录。请到 Boss 拉起的 Chrome 处理。");
+                if (haltIfRisk("Boss 找卡片时弹出人机验证或登录。")) {
+                    return null;
                 }
                 hit = findCardByEncryptId(encryptId);
                 if (hit != null) {
@@ -2469,11 +2488,49 @@ public class Boss {
         return null;
     }
 
+    /** 0 不点详情；负数不设上限；正数是本轮最多点几次。 */
     private int resolveDetailLimit() {
         if (config != null && config.getDetailLimit() != null) {
-            return Math.max(0, config.getDetailLimit());
+            return config.getDetailLimit();
         }
         return localBossSettings.detailLimit();
+    }
+
+    private boolean stopOnRisk() {
+        if (config != null && config.getOnRisk() != null && !config.getOnRisk().isBlank()) {
+            return "stop".equalsIgnoreCase(config.getOnRisk().trim());
+        }
+        return localBossSettings.stopOnRisk();
+    }
+
+    private boolean stopped() {
+        return shouldStopCallback != null && Boolean.TRUE.equals(shouldStopCallback.get());
+    }
+
+    /** 当前页已是人机/风控。true = 调用方立刻结束本轮。 */
+    private boolean haltIfRisk(String reason) {
+        return pageNeedsHuman() && handleRisk(reason);
+    }
+
+    /**
+     * 按 yaml onRisk 处理风控。stop 结束本轮；wait 暂停等人。
+     * @return true 调用方必须立刻 return
+     */
+    private boolean handleRisk(String reason) {
+        if (stopOnRisk()) {
+            log.warn("风控，停止筛选：{}", reason);
+            humanAttention.raise(reason);
+            humanAttention.notifyDesktop(reason);
+            if (progressCallback != null) {
+                progressCallback.accept("风控停止：" + reason, 0, 0);
+            }
+            if (requestStopCallback != null) {
+                requestStopCallback.run();
+            }
+            return true;
+        }
+        waitForHuman(reason);
+        return stopped();
     }
 
     private int resolveKeywordGapSeconds() {

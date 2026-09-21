@@ -93,6 +93,8 @@ public class BossJobService implements JobPlatformService {
             boss.setConfig(config);
             boss.setProgressCallback(bossCallback);
             boss.setShouldStopCallback(this::shouldStop);
+            boss.setRequestStopCallback(() -> shouldStop = true);
+            humanAttention.clear();
             boss.prepare();
 
             // 整个投递流程必须跑在 Playwright 专用线程上。
@@ -100,8 +102,13 @@ public class BossJobService implements JobPlatformService {
             // Playwright 连接，导航被打断报 net::ERR_ABORTED，整个任务直接挂掉。
             int deliveredCount = playwrightManager.callOnPlaywright(boss::execute);
 
-            progressCallback.accept(JobProgressMessage.success(PLATFORM,
-                String.format("筛选完成，共处理%d个岗位（不开聊）", deliveredCount)));
+            if (humanAttention.isRaised()) {
+                progressCallback.accept(JobProgressMessage.warning(PLATFORM,
+                        "筛选因风控停止，已处理" + deliveredCount + "个岗位"));
+            } else {
+                progressCallback.accept(JobProgressMessage.success(PLATFORM,
+                        String.format("筛选完成，共处理%d个岗位（不开聊）", deliveredCount)));
+            }
         } catch (Exception e) {
             log.error("Boss投递任务执行失败", e);
             progressCallback.accept(JobProgressMessage.error(PLATFORM, "投递失败: " + e.getMessage()));
@@ -234,6 +241,8 @@ public class BossJobService implements JobPlatformService {
             boss.setConfig(config);
             boss.setProgressCallback(bossCallback);
             boss.setShouldStopCallback(this::shouldStop);
+            boss.setRequestStopCallback(() -> shouldStop = true);
+            humanAttention.clear();
             boss.prepare();
             int ok = playwrightManager.callOnPlaywright(() -> boss.chatNamedJobs(encryptIds, sendImage));
             progressCallback.accept(JobProgressMessage.success(PLATFORM,
