@@ -131,6 +131,14 @@ a {
   opacity: 0.85;
 }
 
+.class-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  align-items: baseline;
+  margin: -2px 0 10px;
+}
+
 .status {
   margin-left: auto;
   color: var(--mute);
@@ -429,8 +437,9 @@ a {
 
 .reason {
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
   font-family: var(--serif);
   font-size: 12.5px;
   line-height: 1.45;

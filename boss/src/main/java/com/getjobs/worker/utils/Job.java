@@ -26,6 +26,16 @@ public class Job implements Serializable {
     private String jobArea;
 
     /**
+     * 详情：学历要求
+     */
+    private String degreeName;
+
+    /**
+     * 详情：经验要求
+     */
+    private String experienceName;
+
+    /**
      * 岗位信息
      */
     private String jobInfo;
@@ -49,6 +59,21 @@ public class Job implements Serializable {
      * 公司名字
      */
     private String companyName;
+
+    /**
+     * 详情品牌：行业
+     */
+    private String industryName;
+
+    /**
+     * 详情品牌：人数规模
+     */
+    private String scaleName;
+
+    /**
+     * 详情品牌：融资阶段
+     */
+    private String stageName;
 
     /**
      * 公司信息

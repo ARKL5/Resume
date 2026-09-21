@@ -61,6 +61,7 @@ public class Boss {
     private Set<String> blackCompanies;
     private Set<String> blackRecruiters;
     private Set<String> blackJobs;
+    private static final List<String> RECRUITER_TOKENS = List.of("猎头", "招聘顾问", "驻场");
     // 记录 encryptId -> encryptUserId 的映射，用于后续更新投递状态
     private final ConcurrentMap<String, String> encryptIdToUserId = new ConcurrentHashMap<>();
     @Setter
@@ -88,8 +89,8 @@ public class Boss {
     /** 「训练」不含「后训练」。字面列表在 boss.yaml rules。 */
     /** 滚动懒加载每轮等待（秒）。 */
     private static final int SCROLL_SLEEP_SECONDS = 2;
-    /** 信息已到手后的 AI 并行度。不加速 Boss 点详情。 */
-    private static final int AI_PARALLELISM = 32;
+    /** 信息已到手后的 AI 并行度。不加速 Boss 点详情。网关 32 路会 504。 */
+    private static final int AI_PARALLELISM = 25;
     private static String candidateProfile;
     /** 当前卡片 HR 活跃文案，写入 jsonl。 */
     private String lastHrActive = "";
@@ -400,8 +401,7 @@ public class Boss {
                 String listActive = effectiveActive(preview, listKey);
                 CardPreview forRules = listActive.equals(nullToEmpty(preview.active))
                         ? preview
-                        : new CardPreview(preview.job, preview.company, preview.area, listActive,
-                                preview.href, preview.encryptId);
+                        : preview.withActive(listActive);
                 if (hrDropKeys.contains(listKey) && !isActiveWithin3Days(listActive)) {
                     writePreviewStage(keyword, forRules, "rule_drop",
                             ruleReasonLabel("HR未近3天活跃：" + listActive), true);
@@ -411,7 +411,7 @@ public class Boss {
                     log.info("跳过已待读 | {} | {} | {}", preview.encryptId, preview.company, preview.job);
                     continue;
                 }
-                String listRule = ruleDropReason(forRules.job, forRules.company, forRules.active);
+                String listRule = ruleDropReason(forRules.job, forRules.company, forRules.active, forRules.recruiter, "");
                 if (listRule != null) {
                     boolean hrDrop = listRule.startsWith("HR未近3天");
                     writePreviewStage(keyword, forRules, "rule_drop",
@@ -456,7 +456,8 @@ public class Boss {
                 }
                 String clickReason = aiTitleReasonLabel(outcome.reason);
                 if (remainingClicks > 0) {
-                    writePreviewStage(keyword, preview, "jd_wait", clickReason, false);
+                    writePreviewStage(keyword, preview, "jd_wait",
+                            clickReason + "；将点详情", false);
                     worthClick.add(preview);
                     remainingClicks--;
                     detailClicksReserved++;
@@ -519,13 +520,17 @@ public class Boss {
                 // 统一从请求返回的 JSON 中获取数据并做过滤
                 String jobName = null;
                 String jobSalary = null;
-                java.util.List<String> tags = new java.util.ArrayList<>();
                 String jobDesc = null;
                 String bossName = null;
                 String bossActive = null;
                 String bossCompany = null;
                 String bossJobTitle = null;
                 String locationName = null;
+                String industryName = "";
+                String scaleName = "";
+                String stageName = "";
+                String degreeName = "";
+                String experienceName = "";
 
                 if (detailResp != null) {
                     try {
@@ -546,13 +551,15 @@ public class Boss {
                             jobName = jobInfo.optString("jobName", "");
                             jobSalary = jobInfo.optString("salaryDesc", "");
                             String city = jobInfo.optString("locationName", "");
-                            String exp = jobInfo.optString("experienceName", "");
-                            String deg = jobInfo.optString("degreeName", "");
-                            if (!city.isEmpty()) tags.add(city);
-                            if (!exp.isEmpty()) tags.add(exp);
-                            if (!deg.isEmpty()) tags.add(deg);
+                            String district = firstNonBlank(
+                                    jsonString(jobInfo, "areaDistrict"),
+                                    jsonString(jobInfo, "districtName"),
+                                    jsonString(jobInfo, "district"));
+                            String biz = jsonString(jobInfo, "businessDistrict");
+                            experienceName = jobInfo.optString("experienceName", "");
+                            degreeName = jobInfo.optString("degreeName", "");
+                            locationName = firstNonBlank(joinArea(city, district, biz), city);
                             jobDesc = jobInfo.optString("postDescription", "");
-                            locationName = city;
                         }
 
                         if (boss != null) {
@@ -563,6 +570,26 @@ public class Boss {
 
                         if (brand != null) {
                             bossCompany = brand.optString("brandName", "");
+                            industryName = firstNonBlank(
+                                    jsonString(brand, "industryName"),
+                                    jsonString(brand, "brandIndustryName"));
+                            scaleName = firstNonBlank(
+                                    jsonString(brand, "scaleName"),
+                                    jsonString(brand, "brandScaleName"));
+                            stageName = firstNonBlank(
+                                    jsonString(brand, "stageName"),
+                                    jsonString(brand, "brandStageName"));
+                        }
+                        if (jobInfo != null) {
+                            if (industryName.isBlank()) {
+                                industryName = jsonString(jobInfo, "industryName");
+                            }
+                            if (scaleName.isBlank()) {
+                                scaleName = jsonString(jobInfo, "scaleName");
+                            }
+                            if (stageName.isBlank()) {
+                                stageName = jsonString(jobInfo, "stageName");
+                            }
                         }
                     } catch (Throwable e) {
                         log.debug("点击卡片后解析岗位详情用于过滤失败：{}", e.getMessage());
@@ -573,10 +600,15 @@ public class Boss {
                 Job job = new Job();
                 job.setJobName(jobName != null ? jobName : "");
                 job.setSalary(jobSalary != null ? jobSalary : "");
-                job.setJobArea(String.join(", ", tags));
+                job.setJobArea(firstNonBlank(locationName, preview.area));
                 job.setCompanyName(bossCompany != null ? bossCompany : "");
                 job.setRecruiter(bossName != null ? bossName : "");
                 job.setJobInfo(jobDesc != null ? jobDesc : "");
+                job.setIndustryName(industryName);
+                job.setScaleName(scaleName);
+                job.setStageName(stageName);
+                job.setDegreeName(degreeName);
+                job.setExperienceName(experienceName);
                 Locator moreInfoBtn = page.locator("a.more-job-btn");
                 if (moreInfoBtn.count() > 0) {
                     String href = moreInfoBtn.first().getAttribute("href");
@@ -618,6 +650,12 @@ public class Boss {
                 if (!hrText.isBlank() && !isActiveWithin3Days(hrText)) {
                     writeJobStage(keyword, job, cityPage, "rule_drop",
                             ruleReasonLabel("HR未近3天活跃：" + hrText), hrText, true);
+                    continue;
+                }
+                String recRule = recruiterDropReason(bossJobTitle, job.getRecruiter());
+                if (recRule != null) {
+                    writeJobStage(keyword, job, cityPage, "rule_drop",
+                            ruleReasonLabel(recRule), hrText, false);
                     continue;
                 }
 
@@ -1117,9 +1155,10 @@ public class Boss {
 
     /**
      * 列表前置规则。岗位名字面（含前端/运营等）在这里；其余标题/JD 语义走 AI。城市只分页。
-     * 列表卡片没有招聘者头衔，不在这里打头衔。
+     * 招聘者头衔只打猎头/招聘顾问/驻场和招聘者黑名单。
      */
-    private String ruleDropReason(String jobName, String company, String bossActive) {
+    private String ruleDropReason(String jobName, String company, String bossActive,
+                                  String recruiterTitle, String recruiterName) {
         if (hasHrActiveCopy(bossActive) && !isActiveWithin3Days(bossActive)) {
             return "HR未近3天活跃：" + bossActive.trim();
         }
@@ -1138,6 +1177,26 @@ public class Boss {
         String jobToken = firstTokenHit(jobName, localBossSettings.jobTitleTokens());
         if (jobToken != null) {
             return "岗位名含：" + jobToken;
+        }
+        return recruiterDropReason(recruiterTitle, recruiterName);
+    }
+
+    private String recruiterDropReason(String recruiterTitle, String recruiterName) {
+        String token = firstTokenHit(recruiterTitle, RECRUITER_TOKENS);
+        if (token != null) {
+            return "招聘者含：" + token;
+        }
+        if (blackRecruiters == null || blackRecruiters.isEmpty()) {
+            return null;
+        }
+        for (String raw : new String[]{recruiterTitle, recruiterName}) {
+            if (raw == null || raw.isBlank()) {
+                continue;
+            }
+            if (blackRecruiters.stream().anyMatch(raw::contains)) {
+                String term = findMatchedTerm(blackRecruiters, raw);
+                return "招聘者黑名单命中" + (term != null ? "：" + term : "");
+            }
         }
         return null;
     }
@@ -1362,10 +1421,24 @@ public class Boss {
                 harvested.put(key, preview);
                 continue;
             }
-            if ("其它".equals(classifyCity(existing.area)) && isSearchCity(classifyCity(preview.area))) {
-                harvested.put(key, preview);
-            }
+            harvested.put(key, overlayPreview(existing, preview));
         }
+    }
+
+    private CardPreview overlayPreview(CardPreview base, CardPreview extra) {
+        String area = base.area;
+        if ("其它".equals(classifyCity(base.area)) && isSearchCity(classifyCity(extra.area))) {
+            area = extra.area;
+        }
+        return new CardPreview(
+                base.job,
+                base.company,
+                area,
+                firstNonBlank(base.active, extra.active),
+                firstNonBlank(base.href, extra.href),
+                firstNonBlank(base.encryptId, extra.encryptId),
+                firstNonBlank(base.tags, extra.tags),
+                firstNonBlank(base.recruiter, extra.recruiter));
     }
 
     private void harvestVisibleCards(String keyword, Map<String, CardPreview> harvested) {
@@ -1433,7 +1506,8 @@ public class Boss {
                 if (key.isEmpty()) {
                     continue;
                 }
-                CardPreview next = new CardPreview(job, company, area, active, href, encryptId == null ? "" : encryptId);
+                CardPreview next = new CardPreview(job, company, area, active, href,
+                        encryptId == null ? "" : encryptId, "", "");
                 CardPreview existing = harvested.get(key);
                 if (existing != null) {
                     if ("其它".equals(classifyCity(existing.area)) && isSearchCity(classifyCity(area))) {
@@ -1722,18 +1796,23 @@ public class Boss {
     }
 
     private String buildScreenPrompt(String keyword, Job job, String recruiterTitle, String hrActive, String cityPage) {
-        return localBossSettings.fill(localBossSettings.jdPrompt(), java.util.Map.of(
-                "profile", loadCandidateProfile(),
-                "keyword", nullToEmpty(keyword),
-                "company", nullToEmpty(job.getCompanyName()),
-                "job", nullToEmpty(job.getJobName()),
-                "recruiterTitle", nullToEmpty(recruiterTitle),
-                "hrActive", nullToEmpty(hrActive),
-                "cityPage", nullToEmpty(cityPage),
-                "salary", nullToEmpty(job.getSalary()),
-                "area", nullToEmpty(job.getJobArea()),
-                "jd", nullToEmpty(job.getJobInfo())
-        ));
+        java.util.Map<String, String> vars = new java.util.LinkedHashMap<>();
+        vars.put("profile", loadCandidateProfile());
+        vars.put("keyword", nullToEmpty(keyword));
+        vars.put("company", nullToEmpty(job.getCompanyName()));
+        vars.put("job", nullToEmpty(job.getJobName()));
+        vars.put("recruiterTitle", nullToEmpty(recruiterTitle));
+        vars.put("hrActive", nullToEmpty(hrActive));
+        vars.put("cityPage", nullToEmpty(cityPage));
+        vars.put("salary", nullToEmpty(job.getSalary()));
+        vars.put("area", nullToEmpty(job.getJobArea()));
+        vars.put("degree", nullToEmpty(job.getDegreeName()));
+        vars.put("experience", nullToEmpty(job.getExperienceName()));
+        vars.put("industry", nullToEmpty(job.getIndustryName()));
+        vars.put("scale", nullToEmpty(job.getScaleName()));
+        vars.put("stage", nullToEmpty(job.getStageName()));
+        vars.put("jd", nullToEmpty(job.getJobInfo()));
+        return localBossSettings.fill(localBossSettings.jdPrompt(), vars);
     }
 
     private static String nullToEmpty(String s) {
@@ -1849,7 +1928,7 @@ public class Boss {
             return new JSONObject(extractJsonObject(raw)).optString("reason", raw.trim());
         } catch (Exception ignore) {
             String t = raw.replace('\n', ' ').trim();
-            return t.length() > 80 ? t.substring(0, 80) : t;
+            return t.length() > 200 ? t.substring(0, 200) : t;
         }
     }
 
@@ -2244,11 +2323,18 @@ public class Boss {
         String district = firstNonBlank(jsonString(job, "areaDistrict"), jsonString(job, "district"));
         String biz = jsonString(job, "businessDistrict");
         String area = joinArea(city, district, biz);
+        String tags = firstNonBlank(
+                jsonLabelList(job, "skills", "jobLabels"),
+                jobInfo != null ? jsonLabelList(jobInfo, "skills", "jobLabels") : "");
+        String recruiter = firstNonBlank(
+                jsonString(job, "bossTitle"),
+                bossInfo != null ? jsonString(bossInfo, "title") : "",
+                jsonString(job, "bossJobName"));
         if (jobName.isBlank() && company.isBlank()) {
             return;
         }
         listJsonCards.put(encryptId, new CardPreview(
-                jobName, company, area, active, "/job_detail/" + encryptId + ".html", encryptId));
+                jobName, company, area, active, "/job_detail/" + encryptId + ".html", encryptId, tags, recruiter));
     }
 
     private static String jsonString(JSONObject obj, String key) {
@@ -2257,6 +2343,40 @@ public class Boss {
         }
         Object v = obj.opt(key);
         return v instanceof String s ? s.trim() : "";
+    }
+
+    private static String jsonLabelList(JSONObject obj, String... keys) {
+        if (obj == null || keys == null) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        for (String key : keys) {
+            collectLabels(obj.opt(key), parts);
+        }
+        return String.join("、", parts);
+    }
+
+    private static void collectLabels(Object v, List<String> parts) {
+        if (v == null || v == JSONObject.NULL) {
+            return;
+        }
+        if (v instanceof org.json.JSONArray arr) {
+            for (int i = 0; i < arr.length(); i++) {
+                collectLabels(arr.opt(i), parts);
+            }
+            return;
+        }
+        if (v instanceof JSONObject o) {
+            String s = firstNonBlank(jsonString(o, "name"), jsonString(o, "label"), jsonString(o, "skillName"));
+            if (!s.isBlank() && !parts.contains(s)) {
+                parts.add(s);
+            }
+            return;
+        }
+        String s = String.valueOf(v).trim();
+        if (!s.isBlank() && !parts.contains(s)) {
+            parts.add(s);
+        }
     }
 
     private static String firstNonBlank(String... parts) {
@@ -2642,7 +2762,12 @@ public class Boss {
         }
     }
 
-    private record CardPreview(String job, String company, String area, String active, String href, String encryptId) {}
+    private record CardPreview(String job, String company, String area, String active, String href,
+                               String encryptId, String tags, String recruiter) {
+        CardPreview withActive(String next) {
+            return new CardPreview(job, company, area, next, href, encryptId, tags, recruiter);
+        }
+    }
 
     private String cardActiveText(Locator card) {
         String a = cardText(card, HR_ACTIVE_TIME);
@@ -2765,7 +2890,8 @@ public class Boss {
         String prompt = localBossSettings.fill(localBossSettings.titlePrompt(), java.util.Map.of(
                 "keyword", nullToEmpty(keyword),
                 "company", nullToEmpty(preview.company),
-                "job", nullToEmpty(preview.job)
+                "job", nullToEmpty(preview.job),
+                "tags", nullToEmpty(preview.tags)
         ));
         String raw;
         try {

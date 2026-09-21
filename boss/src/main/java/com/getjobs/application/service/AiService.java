@@ -79,66 +79,96 @@ public class AiService {
                 .POST(HttpRequest.BodyPublishers.ofString(requestData.toString()))
                 .build();
 
-        try {
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 200) {
-                JSONObject responseObject = new JSONObject(response.body());
+        int maxAttempts = 3;
+        Exception last = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 200) {
+                    JSONObject responseObject = new JSONObject(response.body());
 
-                String requestId = responseObject.optString("id");
-                long created = responseObject.optLong("created", 0);
-                String usedModel = responseObject.optString("model");
+                    String requestId = responseObject.optString("id");
+                    long created = responseObject.optLong("created", 0);
+                    String usedModel = responseObject.optString("model");
 
-                String responseContent;
-                if (endpoint.endsWith("/responses")) {
-                    // Responses API：优先读取 output_text
-                    responseContent = responseObject.optString("output_text", null);
-                    if (responseContent == null || responseContent.isEmpty()) {
-                        // 兜底：尝试从通用 choices/message 结构读取（部分代理/兼容层会返回该结构）
-                        try {
-                            JSONObject messageObject = responseObject.getJSONArray("choices")
-                                    .getJSONObject(0)
-                                    .getJSONObject("message");
-                            responseContent = messageObject.getString("content");
-                        } catch (Exception ignore) {
-                            responseContent = response.body(); // 最后兜底：返回原始文本，避免空值
+                    String responseContent;
+                    if (endpoint.endsWith("/responses")) {
+                        responseContent = responseObject.optString("output_text", null);
+                        if (responseContent == null || responseContent.isEmpty()) {
+                            try {
+                                JSONObject messageObject = responseObject.getJSONArray("choices")
+                                        .getJSONObject(0)
+                                        .getJSONObject("message");
+                                responseContent = messageObject.getString("content");
+                            } catch (Exception ignore) {
+                                responseContent = response.body();
+                            }
                         }
+                    } else {
+                        JSONObject messageObject = responseObject.getJSONArray("choices")
+                                .getJSONObject(0)
+                                .getJSONObject("message");
+                        responseContent = messageObject.getString("content");
                     }
-                } else {
-                    // Chat Completions API
-                    JSONObject messageObject = responseObject.getJSONArray("choices")
-                            .getJSONObject(0)
-                            .getJSONObject("message");
-                    responseContent = messageObject.getString("content");
+
+                    JSONObject usageObject = responseObject.optJSONObject("usage");
+                    int promptTokens = usageObject != null ? usageObject.optInt("prompt_tokens", -1) : -1;
+                    int completionTokens = usageObject != null ? usageObject.optInt("completion_tokens", -1) : -1;
+                    int totalTokens = usageObject != null ? usageObject.optInt("total_tokens", -1) : -1;
+
+                    LocalDateTime createdTime = created > 0
+                            ? Instant.ofEpochSecond(created).atZone(ZoneId.systemDefault()).toLocalDateTime()
+                            : LocalDateTime.now();
+                    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+                    log.info("AI响应: id={}, time={}, model={}, promptTokens={}, completionTokens={}, totalTokens={}",
+                            requestId, createdTime.format(formatter), usedModel, promptTokens, completionTokens, totalTokens);
+
+                    return responseContent;
                 }
-
-                JSONObject usageObject = responseObject.optJSONObject("usage");
-                int promptTokens = usageObject != null ? usageObject.optInt("prompt_tokens", -1) : -1;
-                int completionTokens = usageObject != null ? usageObject.optInt("completion_tokens", -1) : -1;
-                int totalTokens = usageObject != null ? usageObject.optInt("total_tokens", -1) : -1;
-
-                LocalDateTime createdTime = created > 0
-                        ? Instant.ofEpochSecond(created).atZone(ZoneId.systemDefault()).toLocalDateTime()
-                        : LocalDateTime.now();
-                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
-                log.info("AI响应: id={}, time={}, model={}, promptTokens={}, completionTokens={}, totalTokens={}",
-                        requestId, createdTime.format(formatter), usedModel, promptTokens, completionTokens, totalTokens);
-
-                return responseContent;
-            } else {
-                // 更详细的错误日志，便于定位 400 问题
                 log.error("AI请求失败: status={}, endpoint={}, body={}", response.statusCode(), endpoint, response.body());
-                // 针对 Responses-only 模型误用 Chat Completions 的常见错误做一次自动重试
                 if (!endpoint.endsWith("/responses") && containsReasoningParamError(response.body())) {
                     String fallbackEndpoint = buildResponsesEndpoint(baseUrl);
                     log.warn("检测到 reasoning 相关参数错误，自动切换到 Responses API 重试: {}", fallbackEndpoint);
                     return sendRequestViaResponses(content, apiKey, model, fallbackEndpoint);
                 }
+                if (retryableStatus(response.statusCode()) && attempt < maxAttempts) {
+                    long waitMs = 800L * attempt;
+                    log.warn("AI {}，{}ms 后重试 ({}/{})", response.statusCode(), waitMs, attempt, maxAttempts);
+                    backoff(waitMs);
+                    continue;
+                }
                 throw new RuntimeException("AI请求失败，状态码: " + response.statusCode() + ", 详情: " + response.body());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            } catch (RuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                last = e;
+                if (attempt < maxAttempts) {
+                    long waitMs = 800L * attempt;
+                    log.warn("AI调用异常，{}ms 后重试 ({}/{}): {}", waitMs, attempt, maxAttempts, e.getMessage());
+                    backoff(waitMs);
+                    continue;
+                }
+                log.error("调用AI服务异常", e);
+                throw new RuntimeException(e);
             }
-        } catch (Exception e) {
-            log.error("调用AI服务异常", e);
-            throw e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e);
+        }
+        throw last instanceof RuntimeException ? (RuntimeException) last : new RuntimeException(last);
+    }
+
+    private static boolean retryableStatus(int status) {
+        return status == 429 || status == 502 || status == 503 || status == 504;
+    }
+
+    private static void backoff(long waitMs) {
+        try {
+            Thread.sleep(waitMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
         }
     }
 

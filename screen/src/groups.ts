@@ -35,7 +35,7 @@ function rankOf(group: string): number {
 }
 
 export function reasonGroup(it: ScreenItem): string {
-  const { kind, phase, body } = itemReason(it)
+  const { kind, body } = itemReason(it)
   const colon = body.indexOf("：")
   if (colon > 0 && colon <= 12) {
     const head = body.slice(0, colon)
@@ -45,7 +45,10 @@ export function reasonGroup(it: ScreenItem): string {
     }
     if (head === "HR未近3天活跃" || head.endsWith("黑名单命中")) return head
   }
-  if (kind === "AI") return phase || ""
+  if (kind === "AI") {
+    const cleaned = body.replace(/；本轮详情上限$/, "").replace(/；工作地.*$/, "")
+    return cleaned.length > 36 ? cleaned.slice(0, 36) : cleaned
+  }
   return body.length > 36 ? body.slice(0, 36) : body
 }
 

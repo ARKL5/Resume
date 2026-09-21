@@ -40,7 +40,7 @@ public class BossAnalyticsController {
     }
 
     /**
-     * 对照页：一岗一行。file 缺省则读正在写的那份，否则读点名的 jsonl。
+     * 对照页：一岗一行。file 缺省则读最近改过的一份。
      */
     @GetMapping("/screen-results")
     public ResponseEntity<Map<String, Object>> screenResults(
@@ -50,7 +50,11 @@ public class BossAnalyticsController {
             if (file != null && !file.isBlank()) {
                 log = localBossSettings.resolveListedFile(file.trim());
             } else {
-                log = localBossSettings.screenResultsPath();
+                List<Map<String, Object>> listed = localBossSettings.listScreenFiles();
+                if (listed.isEmpty()) {
+                    return ResponseEntity.ok(Map.of("items", List.of(), "file", ""));
+                }
+                log = localBossSettings.resolveListedFile(String.valueOf(listed.get(0).get("name")));
             }
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of(

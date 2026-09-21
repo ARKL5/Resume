@@ -38,6 +38,15 @@ export type CityPage = "杭州" | "上海" | "其它"
 
 export type StationId = "rule" | "ai" | "wait" | "keep"
 
+/** AI / 待读里的分类。规则和保留没有。其它城走城市分页。 */
+export type LaneId =
+  | "title_drop"
+  | "jd_drop"
+  | "title_fail"
+  | "jd_fail"
+  | "click_cap"
+  | "park"
+
 export function jobKey(it: ScreenItem): string {
   if (it.encryptId) return `id:${it.encryptId}`
   return `name:${it.company || ""}|${it.job || ""}`
@@ -50,13 +59,32 @@ export function stationOf(it: ScreenItem): StationId | null {
     case "ai_title_drop":
     case "ai_title_pending":
     case "ai_jd_drop":
+    case "ai_jd_pending":
       return "ai"
     case "jd_wait":
     case "jd_wait_other":
-    case "ai_jd_pending":
       return "wait"
     case "ai_keep":
       return "keep"
+    default:
+      return null
+  }
+}
+
+export function laneOf(it: ScreenItem): LaneId | null {
+  switch (it.stage) {
+    case "ai_title_drop":
+      return "title_drop"
+    case "ai_jd_drop":
+      return "jd_drop"
+    case "ai_title_pending":
+      return "title_fail"
+    case "ai_jd_pending":
+      return "jd_fail"
+    case "jd_wait": {
+      const r = it.reason || ""
+      return r.includes("将点详情") || r.includes("详情上限") ? "click_cap" : "park"
+    }
     default:
       return null
   }

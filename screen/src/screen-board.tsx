@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import { apiUrl } from "./api"
-import { CITY_PAGES, STATIONS } from "./constants"
+import { CITY_PAGES, STATIONS, lanesFor } from "./constants"
 import { pageSizeForViewport } from "./page-size"
 import { loadStars, saveStars } from "./stars"
 import { sortByReasonGroup } from "./groups"
@@ -11,9 +11,11 @@ import {
   fileLabel,
   isPlaced,
   jobKey,
+  laneOf,
   stationOf,
   type BossStatus,
   type CityPage,
+  type LaneId,
   type ScreenFile,
   type ScreenItem,
   type StationId,
@@ -30,12 +32,13 @@ export default function ScreenBoard() {
   const [items, setItems] = useState<ScreenItem[]>([])
   const [status, setStatus] = useState<BossStatus | null>(null)
   const [files, setFiles] = useState<ScreenFile[]>([])
-  const [pinnedFile, setPinnedFile] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [loadedFile, setLoadedFile] = useState("")
-  const pinnedRef = useRef<string | null>(null)
+  const selectedRef = useRef<string | null>(null)
   const loadGen = useRef(0)
   const [city, setCity] = useState<CityPage>("杭州")
   const [station, setStation] = useState<StationId>("rule")
+  const [lane, setLane] = useState<LaneId | null>(null)
   const [query, setQuery] = useState("")
   const [onlyStar, setOnlyStar] = useState(false)
   const [stars, setStars] = useState<Set<string>>(() => new Set())
@@ -48,29 +51,44 @@ export default function ScreenBoard() {
   const stale = query !== deferredQuery
   const navRef = useRef<NavSnap>({ slice: [], page: 1, totalPages: 1, hi: 0 })
 
-  const load = useCallback(async (file = pinnedRef.current) => {
+  const load = useCallback(async (want?: string | null) => {
     const gen = ++loadGen.current
     try {
-      const resultsPath = file
-        ? `/api/boss/screen-results?file=${encodeURIComponent(file)}`
-        : "/api/boss/screen-results"
-      const [resultsRes, statusRes, filesRes] = await Promise.all([
-        fetch(apiUrl(resultsPath)),
+      const [statusRes, filesRes] = await Promise.all([
         fetch(apiUrl("/api/boss/status")),
         fetch(apiUrl("/api/boss/screen-files")),
       ])
       if (gen !== loadGen.current) return
+      if (statusRes.ok) setStatus(await statusRes.json())
+      let listed: ScreenFile[] = []
+      if (filesRes.ok) {
+        const body: { files?: ScreenFile[] } = await filesRes.json()
+        listed = Array.isArray(body.files) ? body.files : []
+      }
+      setFiles(listed)
+      const names = new Set(listed.map((f) => f.name))
+      let file = want !== undefined ? want : selectedRef.current
+      if (!file || !names.has(file)) {
+        file = listed[0]?.name ?? null
+        selectedRef.current = file
+        setSelectedFile(file)
+        setPage(1)
+        setHi(0)
+      }
+      if (!file) {
+        setItems([])
+        setLoadedFile("")
+        setOffline(false)
+        return
+      }
+      const resultsRes = await fetch(
+        apiUrl(`/api/boss/screen-results?file=${encodeURIComponent(file)}`),
+      )
+      if (gen !== loadGen.current) return
       if (!resultsRes.ok) throw new Error("results")
       const data: { items?: ScreenItem[]; file?: string } = await resultsRes.json()
       setItems((Array.isArray(data.items) ? data.items : []).filter(isPlaced))
-      setLoadedFile(typeof data.file === "string" ? data.file : file ?? "")
-      if (statusRes.ok) {
-        setStatus(await statusRes.json())
-      }
-      if (filesRes.ok) {
-        const listed: { files?: ScreenFile[] } = await filesRes.json()
-        setFiles(Array.isArray(listed.files) ? listed.files : [])
-      }
+      setLoadedFile(typeof data.file === "string" ? data.file : file)
       setOffline(false)
     } catch {
       if (gen !== loadGen.current) return
@@ -141,13 +159,33 @@ export default function ScreenBoard() {
     return m
   }, [inCity])
 
+  const lanes = lanesFor(station, city)
+
+  const laneCounts = useMemo(() => {
+    const m: Partial<Record<LaneId, number>> = {}
+    for (const it of inCity) {
+      if (stationOf(it) !== station) continue
+      const l = laneOf(it)
+      if (!l) continue
+      m[l] = (m[l] ?? 0) + 1
+    }
+    return m
+  }, [inCity, station])
+
+  const selectedLane = lanes.length === 0 ? null : lane && lanes.some((d) => d.id === lane) ? lane : null
+  const needClass = lanes.length > 0 && selectedLane == null
+
   const ranked = useMemo(() => {
+    if (needClass) return []
     const ofStation: ScreenItem[] = []
     for (const it of inCity) {
-      if (stationOf(it) === station) ofStation.push(it)
+      if (stationOf(it) !== station) continue
+      if (selectedLane && laneOf(it) !== selectedLane) continue
+      ofStation.push(it)
     }
-    return sortByReasonGroup(ofStation)
-  }, [inCity, station])
+    if (station === "rule") return sortByReasonGroup(ofStation)
+    return ofStation
+  }, [inCity, station, selectedLane, needClass])
 
   useEffect(() => {
     const measure = () => setPageSize(pageSizeForViewport(window.innerWidth, window.innerHeight))
@@ -168,7 +206,7 @@ export default function ScreenBoard() {
     setPage(1)
     setHi(0)
     setJdOpenKey(null)
-  }, [city, station, deferredQuery, onlyStar])
+  }, [city, station, deferredQuery, onlyStar, selectedLane])
 
   useEffect(() => {
     setPage((p) => Math.min(p, totalPages))
@@ -224,7 +262,10 @@ export default function ScreenBoard() {
       }
       if (key === "1" || key === "2" || key === "3" || key === "4") {
         const next = STATIONS[Number(key) - 1]
-        if (next) setStation(next.id)
+        if (next) {
+          setStation(next.id)
+          setLane(null)
+        }
         return
       }
       if (key === "s" || key === " ") {
@@ -281,7 +322,10 @@ export default function ScreenBoard() {
               key={def.id}
               type="button"
               className={station === def.id ? `tab ${def.tone} is-on` : `tab ${def.tone}`}
-              onClick={() => setStation(def.id)}
+              onClick={() => {
+                setStation(def.id)
+                setLane(null)
+              }}
             >
               {def.title}
               <span className="n">{stationCounts[def.id]}</span>
@@ -294,6 +338,26 @@ export default function ScreenBoard() {
           {loadedFile ? <span className="file-name"> {loadedFile}</span> : null}
         </span>
       </div>
+      {lanes.length > 0 ? (
+        <div className="class-row">
+          {lanes.map((def) => (
+            <button
+              key={def.id}
+              type="button"
+              className={
+                selectedLane === def.id
+                  ? `tab ${station === "ai" ? "s2" : "s3"} is-on`
+                  : `tab ${station === "ai" ? "s2" : "s3"}`
+              }
+              data-lane={def.id}
+              onClick={() => setLane(def.id)}
+            >
+              {def.title}
+              <span className="n">{laneCounts[def.id] ?? 0}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {needHuman ? (
         <div className="human">
@@ -310,22 +374,26 @@ export default function ScreenBoard() {
       <div className="search-row">
         <div className="file-pick">
           <select
-            value={pinnedFile ?? ""}
+            value={selectedFile ?? ""}
+            disabled={files.length === 0}
             onChange={(e) => {
-              const v = e.target.value === "" ? null : e.target.value
-              pinnedRef.current = v
-              setPinnedFile(v)
+              const v = e.target.value
+              selectedRef.current = v
+              setSelectedFile(v)
               setPage(1)
               setHi(0)
               void load(v)
             }}
           >
-            <option value="">跟着筛选</option>
-            {files.map((f) => (
-              <option key={f.name} value={f.name}>
-                {fileLabel(f)}
-              </option>
-            ))}
+            {files.length === 0 ? (
+              <option value="">没有筛选结果</option>
+            ) : (
+              files.map((f) => (
+                <option key={f.name} value={f.name}>
+                  {fileLabel(f)}
+                </option>
+              ))
+            )}
           </select>
         </div>
         <div className="search">
@@ -348,20 +416,25 @@ export default function ScreenBoard() {
       </div>
 
       <div className={stale ? "stale" : undefined}>
-        <StationTable
-          items={ranked}
-          page={safePage}
-          pageSize={pageSize}
-          onPage={(p) => {
-            setPage(p)
-            setHi(0)
-          }}
-          hi={safeHi}
-          onHi={setHi}
-          starred={stars}
-          jdOpenKey={jdOpenKey}
-          onToggleStar={onToggleStar}
-        />
+        {needClass ? (
+          <p className="empty">先选分类</p>
+        ) : (
+          <StationTable
+            items={ranked}
+            page={safePage}
+            pageSize={pageSize}
+            onPage={(p) => {
+              setPage(p)
+              setHi(0)
+            }}
+            hi={safeHi}
+            onHi={setHi}
+            starred={stars}
+            jdOpenKey={jdOpenKey}
+            onToggleStar={onToggleStar}
+            groupByReason={station === "rule"}
+          />
+        )}
       </div>
     </div>
   )
