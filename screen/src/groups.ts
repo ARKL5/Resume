@@ -23,8 +23,10 @@ const GROUP_RANK = [
   "岗位名含：招聘顾问",
   "职位黑名单命中",
   "公司黑名单命中",
-  "标题",
-  "JD",
+  "招聘者含：猎头",
+  "招聘者含：招聘顾问",
+  "招聘者含：驻场",
+  "招聘者黑名单命中",
 ]
 
 function rankOf(group: string): number {
@@ -35,7 +37,7 @@ function rankOf(group: string): number {
 }
 
 export function reasonGroup(it: ScreenItem): string {
-  const { kind, body } = itemReason(it)
+  const { body } = itemReason(it)
   const colon = body.indexOf("：")
   if (colon > 0 && colon <= 12) {
     const head = body.slice(0, colon)
@@ -43,11 +45,7 @@ export function reasonGroup(it: ScreenItem): string {
       const token = body.slice(colon + 1).split(/[，、\s]/)[0] || ""
       return token ? `${head}：${token}` : head
     }
-    if (head === "HR未近3天活跃" || head.endsWith("黑名单命中")) return head
-  }
-  if (kind === "AI") {
-    const cleaned = body.replace(/；本轮详情上限$/, "").replace(/；工作地.*$/, "")
-    return cleaned.length > 36 ? cleaned.slice(0, 36) : cleaned
+    if (head === "HR未近3天活跃" || head === "招聘者含" || head.endsWith("黑名单命中")) return head
   }
   return body.length > 36 ? body.slice(0, 36) : body
 }

@@ -84,10 +84,6 @@ public class Job implements Serializable {
     public String toString() {
         return String.format("【%s, %s, %s, %s, %s, %s】", companyName, jobName, jobArea, salary, companyTag, recruiter);
     }
-
-    public String toString(Platform platform) {
-        return String.format("【%s, %s, %s, %s, %s, %s】", companyName, jobName, jobArea, salary, companyTag, recruiter);
-    }
 }
 
 

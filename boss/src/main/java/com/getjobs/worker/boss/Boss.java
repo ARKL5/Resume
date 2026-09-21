@@ -17,8 +17,6 @@ import org.json.JSONObject;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -71,17 +69,6 @@ public class Boss {
 
     private final List<Job> resultList = new ArrayList<>();
 
-    /** Boss 首页，UI 搜索的入口 */
-    private static final String BOSS_HOME_URL = "https://www.zhipin.com";
-    /**
-     * true=先回首页、在搜索框里做一次真实 UI 搜索再进列表页；false=直接拼 URL 跳转。
-     * <p>
-     * 默认关掉。实测 Boss 首页在受控标签页里会一直转圈加载不完，navigate 要 60 秒才返回，
-     * 期间 evaluate / locator 全部无限期阻塞（这两个 API 没有默认超时）—— 启动慢、投递卡死、
-     * 管理页面按钮没反应都出在这。而岗位列表页在同一个浏览器里是秒开的。
-     * 想重新试 UI 搜索路径时再打开。
-     */
-    private static final boolean USE_UI_SEARCH = false;
     /** 等待页面加载状态的超时（毫秒），绝不能不设 —— 见 waitForPageSettled 的说明 */
     private static final double LOAD_STATE_TIMEOUT = 10_000;
     /** true=只读岗并用 AI 筛选，不点立即沟通。本轮先看名单。 */
@@ -167,100 +154,6 @@ public class Boss {
      */
     public List<Job> getResultList() {
         return new ArrayList<>(resultList);
-    }
-
-    /**
-     * 更新黑名单（从聊天记录中）
-     */
-    public Map<String, Set<String>> updateBlacklistFromChats() {
-        page.navigate("https://www.zhipin.com/web/geek/chat");
-        PlaywrightUtil.sleep(3);
-
-        int newBlacklistCount = 0;
-        boolean shouldBreak = false;
-        while (!shouldBreak) {
-            try {
-                Locator bottomLocator = page.locator(FINISHED_TEXT);
-                if (bottomLocator.count() > 0 && "没有更多了".equals(bottomLocator.textContent())) {
-                    shouldBreak = true;
-                }
-            } catch (Exception ignore) {
-            }
-
-            Locator items = page.locator(CHAT_LIST_ITEM);
-            int itemCount = items.count();
-
-            for (int i = 0; i < itemCount; i++) {
-                try {
-                    Locator companyElements = page.locator(COMPANY_NAME_IN_CHAT);
-                    Locator messageElements = page.locator(LAST_MESSAGE);
-
-                    if (i >= companyElements.count() || i >= messageElements.count()) {
-                        break;
-                    }
-
-                    String companyName = null;
-                    String message = null;
-                    int retryCount = 0;
-
-                    while (true) {
-                        try {
-                            companyName = companyElements.nth(i).textContent();
-                            message = messageElements.nth(i).textContent();
-                            break;
-                        } catch (Exception e) {
-                            retryCount++;
-                            if (retryCount >= 2) {
-                                log.info("尝试获取元素文本2次失败，放弃本次获取");
-                                break;
-                            }
-                            log.info("页面元素已变更，正在重试第{}次获取元素文本...", retryCount);
-                            PlaywrightUtil.sleep(1);
-                        }
-                    }
-
-                    if (companyName != null && message != null) {
-                        boolean match = message.contains("不") || message.contains("感谢") || message.contains("但")
-                                || message.contains("遗憾") || message.contains("需要本") || message.contains("对不");
-                        boolean nomatch = message.contains("不是") || message.contains("不生");
-                        if (match && !nomatch) {
-                            if (blackCompanies.stream().anyMatch(companyName::contains)) {
-                                continue;
-                            }
-                            companyName = companyName.replaceAll("\\.{3}", "");
-                            if (companyName.matches(".*(\\p{IsHan}{2,}|[a-zA-Z]{4,}).*")) {
-                                blackCompanies.add(companyName);
-                                // 保存到数据库
-                                bossService.addBlacklist("company", companyName);
-                                newBlacklistCount++;
-                                log.info("黑名单公司：【{}】，信息：【{}】", companyName, message);
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    log.error("寻找黑名单公司异常...", e);
-                }
-            }
-
-            try {
-                Locator scrollElement = page.locator(SCROLL_LOAD_MORE);
-                if (scrollElement.count() > 0) {
-                    scrollElement.scrollIntoViewIfNeeded();
-                } else {
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight);");
-                }
-            } catch (Exception e) {
-                log.error("滚动元素出错", e);
-                break;
-            }
-        }
-        log.info("黑名单公司数量：{}，本次新增：{}", (blackCompanies != null ? blackCompanies.size() : 0), newBlacklistCount);
-
-        Map<String, Set<String>> result = new HashMap<>();
-        result.put("blackCompanies", new HashSet<>(blackCompanies != null ? blackCompanies : Collections.emptySet()));
-        result.put("blackRecruiters", new HashSet<>(blackRecruiters != null ? blackRecruiters : Collections.emptySet()));
-        result.put("blackJobs", new HashSet<>(blackJobs != null ? blackJobs : Collections.emptySet()));
-        return result;
     }
 
     private void postJobByCity(String cityCode) {
@@ -407,7 +300,7 @@ public class Boss {
                             ruleReasonLabel("HR未近3天活跃：" + listActive), true);
                     continue;
                 }
-                if (pendingDetailKeys.contains(listKey) || otherCityPendingKeys.contains(listKey)) {
+                if (pendingDetailKeys.contains(listKey)) {
                     log.info("跳过已待读 | {} | {} | {}", preview.encryptId, preview.company, preview.job);
                     continue;
                 }
@@ -729,63 +622,6 @@ public class Boss {
         }
     }
 
-    public String decodeSalary(String text) {
-        Map<Character, Character> fontMap = new HashMap<>();
-        fontMap.put('\uE8F0', '0');
-        fontMap.put('\uE8F1', '1');
-        fontMap.put('\uE8F2', '2');
-        fontMap.put('\uE8F3', '3');
-        fontMap.put('\uE8F4', '4');
-        fontMap.put('\uE8F5', '5');
-        fontMap.put('\uE8F6', '6');
-        fontMap.put('\uE8F7', '7');
-        fontMap.put('\uE8F8', '8');
-        fontMap.put('\uE8F9', '9');
-        StringBuilder result = new StringBuilder();
-        for (char c : text.toCharArray()) {
-            result.append(fontMap.getOrDefault(c, c));
-        }
-        return result.toString();
-    }
-
-    // 安全获取单个文本内容
-    public String safeText(Locator root, String selector) {
-        Locator node = root.locator(selector);
-        try {
-            if (node.count() > 0 && node.innerText() != null) {
-                return node.innerText().trim();
-            }
-        } catch (Exception e) {
-            // ignore
-        }
-        return "";
-    }
-
-    // 安全获取多个文本内容
-    public List<String> safeAllText(Locator root, String selector) {
-        try {
-            return root.locator(selector).allInnerTexts();
-        } catch (Exception e) {
-            return new ArrayList<>();
-        }
-    }
-
-    // Boss姓名+活跃状态拆分
-    public String[] splitBossName(String raw) {
-        String[] bossParts = raw.trim().split("\\s+");
-        String bossName = bossParts[0];
-        String bossActive = bossParts.length > 1 ? String.join(" ", Arrays.copyOfRange(bossParts, 1, bossParts.length)) : "";
-        return new String[]{bossName, bossActive};
-    }
-
-    // Boss公司+职位拆分
-    public String[] splitBossTitle(String raw) {
-        String[] parts = raw.trim().split(" · ");
-        String company = parts[0];
-        String job = parts.length > 1 ? parts[1] : "";
-        return new String[]{company, job};
-    }
-
     // 匹配命中词条（用于日志输出过滤原因）
     private String findMatchedTerm(java.util.Collection<String> patterns, String text) {
         if (patterns == null || text == null) return null;
@@ -831,97 +667,9 @@ public class Boss {
         return buildSearchUrl(config, cityCode);
     }
 
-    /**
-     * 进入岗位列表页。
-     * <p>
-     * 优先模拟真人路径：回首页 -> 在搜索框里逐字输入关键词 -> 点搜索按钮，
-     * 而不是冷启动直接把拼好的列表页 URL 丢给浏览器。
-     * <p>
-     * UI 搜索只能带上关键词和首页当前城市，config 里的城市/薪资/经验等筛选项仍然只能靠 URL，
-     * 所以落地之后如果条件对不上，会再做一次同标签页跳转 —— 此时已经是热会话 + 同源 referer，
-     * 和冷启动直闯不是一回事。UI 搜索任何一步失败都会退回原来的直接跳转，不影响主流程。
-     */
-    private void openJobList(String keyword, String targetUrl, String cityCode) {
-        boolean uiSearchDone = USE_UI_SEARCH && searchFromHomePage(keyword);
-        if (!uiSearchDone) {
-            navigateToJobList(targetUrl);
-        } else if (needsUrlFilters(targetUrl, cityCode)) {
-            log.info("【{}】UI搜索已落地，补充筛选条件跳转：{}", keyword, targetUrl);
-            navigateToJobList(targetUrl);
-        }
+    private void openJobList(String keyword, String targetUrl) {
+        navigateTo(targetUrl);
         warnIfSecurityCheck(keyword);
-    }
-
-    /**
-     * 在 Boss 首页搜索框里做一次真实的 UI 搜索。
-     *
-     * @return 是否成功落到岗位列表页
-     */
-    private boolean searchFromHomePage(String keyword) {
-        try {
-            String current = page.url();
-            if (current == null || !current.startsWith(BOSS_HOME_URL) || current.contains("/web/geek/")) {
-                navigateTo(BOSS_HOME_URL);
-            }
-            // 首页落地后还会自己跳一次（/shanghai/?seoRefer=index 之类），
-            // 不等它跳完就找搜索框，会卡在 "waiting for navigation to finish" 直到超时
-            waitForPageSettled();
-
-            Locator input = page.locator(HOME_SEARCH_INPUT).first();
-            input.waitFor(new Locator.WaitForOptions().setTimeout(10_000));
-            input.click();
-            input.fill("");
-            // 逐字输入，模拟真人打字节奏；一次性 fill 在输入行为层面太干净了
-            input.pressSequentially(keyword, new Locator.PressSequentiallyOptions().setDelay(140));
-            PlaywrightUtil.sleep(1);
-
-            Locator searchBtn = page.locator(HOME_SEARCH_BUTTON).first();
-            if (searchBtn.count() > 0) {
-                searchBtn.click();
-            } else {
-                input.press("Enter");
-            }
-            // 表单提交是当前标签页跳转；若 Boss 改成新开标签页，这里会超时并退回直接跳转
-            page.waitForURL("**/web/geek/jobs**", new Page.WaitForURLOptions().setTimeout(15_000));
-            log.info("【{}】已通过首页搜索框进入岗位列表：{}", keyword, page.url());
-            return true;
-        } catch (Exception e) {
-            log.warn("【{}】首页UI搜索失败，退回直接跳转：{}", keyword, e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * UI 搜索落地后，判断还需不需要用 URL 把筛选条件补上。
-     */
-    private boolean needsUrlFilters(String targetUrl, String cityCode) {
-        String landed = page.url();
-        if (landed == null) {
-            return true;
-        }
-        // 首页搜索用的是首页当前城市，不一定等于配置里的城市
-        if (cityCode != null && !cityCode.isEmpty() && !landed.contains("city=" + cityCode)) {
-            return true;
-        }
-        // 除 city/query 外还有别的筛选项（薪资、经验、学历……），UI 搜索带不上
-        int queryStart = targetUrl.indexOf('?');
-        if (queryStart < 0) {
-            return false;
-        }
-        for (String param : targetUrl.substring(queryStart + 1).split("&")) {
-            int eq = param.indexOf('=');
-            String name = eq < 0 ? param : param.substring(0, eq);
-            String value = eq < 0 ? "" : param.substring(eq + 1);
-            if (value.isEmpty() || "city".equals(name) || "query".equals(name)) {
-                continue;
-            }
-            return true;
-        }
-        return false;
-    }
-
-    private void navigateToJobList(String url) {
-        navigateTo(url);
     }
 
     /**
@@ -1032,7 +780,7 @@ public class Boss {
         RuntimeException last = null;
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
-                openJobList(keyword, targetUrl, cityCode);
+                openJobList(keyword, targetUrl);
                 waitForJobList();
                 return;
             } catch (RuntimeException e) {
@@ -1802,9 +1550,6 @@ public class Boss {
         vars.put("company", nullToEmpty(job.getCompanyName()));
         vars.put("job", nullToEmpty(job.getJobName()));
         vars.put("recruiterTitle", nullToEmpty(recruiterTitle));
-        vars.put("hrActive", nullToEmpty(hrActive));
-        vars.put("cityPage", nullToEmpty(cityPage));
-        vars.put("salary", nullToEmpty(job.getSalary()));
         vars.put("area", nullToEmpty(job.getJobArea()));
         vars.put("degree", nullToEmpty(job.getDegreeName()));
         vars.put("experience", nullToEmpty(job.getExperienceName()));
@@ -1856,19 +1601,7 @@ public class Boss {
         return r.isEmpty() ? "未写明" : r;
     }
 
-    private String carryReason(String listKey, String fallback) {
-        JSONObject row = screenRows.get(listKey);
-        if (row != null) {
-            String prev = row.optString("reason", "").trim();
-            if (!prev.isEmpty()) {
-                if (fallback == null || fallback.isBlank() || prev.contains(fallback)) {
-                    return prev;
-                }
-                return prev + "；" + fallback;
-            }
-        }
-        return fallback;
-    }
+
 
     private static String stripReasonBody(String raw) {
         if (raw == null) {
@@ -2032,7 +1765,7 @@ public class Boss {
         if (config.getEnableAI()) {
             String jd = job.getJobInfo();
             if (jd != null && !jd.isEmpty()) {
-                aiMessage = generateAiMessage(keyword, job.getJobName(), jd);
+                aiMessage = config.getSayHi();
             }
         }
         String message = isValidString(aiMessage) ? aiMessage : config.getSayHi();
@@ -2406,48 +2139,6 @@ public class Boss {
     }
 
     /**
-     * 注册页面响应监听：拦截 /wapi/zpgeek/job/detail.json 请求并解析写库
-     */
-    private void attachJobDetailResponseListener() {
-        if (page == null) return;
-        page.onResponse(resp -> {
-            try {
-                String url = resp.url();
-                if (url == null) return;
-                // 仅处理 Boss 岗位详情接口（GET）
-                if (url.contains("/wapi/zpgeek/job/detail.json") &&
-                        "GET".equalsIgnoreCase(resp.request().method())) {
-                    String body = null;
-                    try {
-                        body = resp.text();
-                    } catch (Throwable ignore) {
-                        // 某些情况下可能拿不到文本，忽略
-                    }
-                    if (body == null || body.isEmpty()) return;
-
-                    // 保存原始 JSON 到 target/job.txt
-                    appendRawJson(body);
-
-                    // 仅记录映射与原始 JSON；入库逻辑已移动到点击卡片时
-                    JSONObject root = new JSONObject(body);
-                    JSONObject zpData = root.optJSONObject("zpData");
-                    if (zpData == null) return;
-                    JSONObject jobInfo = zpData.optJSONObject("jobInfo");
-                    if (jobInfo == null) return;
-                    String encryptId = jobInfo.optString("encryptId", null);
-                    String encryptUserId = jobInfo.optString("encryptUserId", null);
-                    if (encryptId != null && encryptUserId != null) {
-                        encryptIdToUserId.put(encryptId, encryptUserId);
-                    }
-                }
-            } catch (Throwable e) {
-                log.debug("监听岗位详情响应处理异常：{}", e.getMessage());
-            }
-        });
-    }
-
-
-    /**
      * 追加保存原始 JSON 到 target/job.txt
      */
     private void appendRawJson(String body) {
@@ -2561,159 +2252,6 @@ public class Boss {
             java.nio.file.Files.copy(in, temp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
         return temp;
-    }
-
-    /**
-     * 检查岗位薪资是否符合预期
-     *
-     * @return boolean
-     * true 不符合预期
-     * false 符合预期
-     * 期望的最低薪资如果比岗位最高薪资还小，则不符合（薪资给的太少）
-     * 期望的最高薪资如果比岗位最低薪资还小，则不符合(要求太高满足不了)
-     */
-    private boolean isSalaryNotExpected(String salary) {
-        try {
-            // 1. 如果没有期望薪资范围，直接返回 false，表示"薪资并非不符合预期"
-            List<Integer> expectedSalary = config.getExpectedSalary();
-            if (!hasExpectedSalary(expectedSalary)) {
-                return false;
-            }
-
-            // 2. 清理薪资文本（比如去掉 "·15薪"）
-            salary = removeYearBonusText(salary);
-
-            // 3. 如果薪资格式不符合预期（如缺少 "K" / "k"），直接返回 true，表示"薪资不符合预期"
-            if (!isSalaryInExpectedFormat(salary)) {
-                return true;
-            }
-
-            // 4. 进一步清理薪资文本，比如去除 "K"、"k"、"·" 等
-            salary = cleanSalaryText(salary);
-
-            // 5. 判断是 "月薪" 还是 "日薪"
-            String jobType = detectJobType(salary);
-            salary = removeDayUnitIfNeeded(salary); // 如果是按天，则去除 "元/天"
-
-            // 6. 解析薪资范围并检查是否超出预期
-            Integer[] jobSalaryRange = parseSalaryRange(salary);
-            return isSalaryOutOfRange(jobSalaryRange,
-                    getMinimumSalary(expectedSalary),
-                    getMaximumSalary(expectedSalary),
-                    jobType);
-
-        } catch (Exception e) {
-            log.error("岗位薪资获取异常！薪资文本【{}】,异常信息【{}】", salary, e.getMessage(), e);
-            // 出错时，您可根据业务需求决定返回 true 或 false
-            // 这里假设出错时无法判断，视为不满足预期 => 返回 true
-            return true;
-        }
-    }
-
-    /**
-     * 是否存在有效的期望薪资范围
-     */
-    private boolean hasExpectedSalary(List<Integer> expectedSalary) {
-        return expectedSalary != null && !expectedSalary.isEmpty();
-    }
-
-    /**
-     * 去掉年终奖信息，如 "·15薪"、"·13薪"。
-     */
-    private String removeYearBonusText(String salary) {
-        if (salary.contains("薪")) {
-            // 使用正则去除 "·任意数字薪"
-            return salary.replaceAll("·\\d+薪", "");
-        }
-        return salary;
-    }
-
-    /**
-     * 判断是否是按天计薪，如发现 "元/天" 则认为是日薪
-     */
-    private String detectJobType(String salary) {
-        if (salary.contains("元/天")) {
-            return "day";
-        }
-        return "mouth";
-    }
-
-    /**
-     * 如果是日薪，则去除 "元/天"
-     */
-    private String removeDayUnitIfNeeded(String salary) {
-        if (salary.contains("元/天")) {
-            return salary.replaceAll("元/天", "");
-        }
-        return salary;
-    }
-
-    private Integer getMinimumSalary(List<Integer> expectedSalary) {
-        return expectedSalary != null && !expectedSalary.isEmpty() ? expectedSalary.get(0) : null;
-    }
-
-    private Integer getMaximumSalary(List<Integer> expectedSalary) {
-        return expectedSalary != null && expectedSalary.size() > 1 ? expectedSalary.get(1) : null;
-    }
-
-    private boolean isSalaryInExpectedFormat(String salaryText) {
-        return salaryText.contains("K") || salaryText.contains("k") || salaryText.contains("元/天");
-    }
-
-    private String cleanSalaryText(String salaryText) {
-        salaryText = salaryText.replace("K", "").replace("k", "");
-        int dotIndex = salaryText.indexOf('·');
-        if (dotIndex != -1) {
-            salaryText = salaryText.substring(0, dotIndex);
-        }
-        return salaryText;
-    }
-
-    private boolean isSalaryOutOfRange(Integer[] jobSalary, Integer miniSalary, Integer maxSalary,
-                                       String jobType) {
-        if (jobSalary == null) {
-            return true;
-        }
-        if (miniSalary == null) {
-            return false;
-        }
-        if (Objects.equals("day", jobType)) {
-            // 期望薪资转为平均每日的工资
-            maxSalary = BigDecimal.valueOf(maxSalary).multiply(BigDecimal.valueOf(1000))
-                    .divide(BigDecimal.valueOf(21.75), 0, RoundingMode.HALF_UP).intValue();
-            miniSalary = BigDecimal.valueOf(miniSalary).multiply(BigDecimal.valueOf(1000))
-                    .divide(BigDecimal.valueOf(21.75), 0, RoundingMode.HALF_UP).intValue();
-        }
-        // 如果职位薪资下限低于期望的最低薪资，返回不符合
-        if (jobSalary[1] < miniSalary) {
-            return true;
-        }
-        // 如果职位薪资上限高于期望的最高薪资，返回不符合
-        return maxSalary != null && jobSalary[0] > maxSalary;
-    }
-
-    public boolean containsDeadStatus(String activeTimeText, List<String> deadStatus) {
-        for (String status : deadStatus) {
-            if (activeTimeText.contains(status)) {
-                return true;// 一旦找到包含的值，立即返回 true
-            }
-        }
-        return false;// 如果没有找到，返回 false
-    }
-
-    private String generateAiMessage(String keyword, String jobName, String jd) {
-        return config.getSayHi();
-    }
-
-    private Integer[] parseSalaryRange(String salaryText) {
-        try {
-            return Arrays.stream(salaryText.split("-")).map(s -> s.replaceAll("[^0-9]", "")) // 去除非数字字符
-                    .map(Integer::parseInt) // 转换为Integer
-                    .toArray(Integer[]::new); // 转换为Integer数组
-        } catch (Exception e) {
-            log.error("薪资解析异常！{}", e.getMessage(), e);
-        }
-        return null;
     }
 
     /** wait_time 没配或配得不合法时用的秒数 */
@@ -2928,11 +2466,7 @@ public class Boss {
             }
         } catch (Exception ignore) {
         }
-        Boolean keep = parseKeepOrNull(raw);
-        if (keep == null) {
-            return null;
-        }
-        return keep ? TitleAction.CLICK : TitleAction.DROP;
+        return null;
     }
 
     private int resolveDetailLimit() {

@@ -71,6 +71,7 @@ public class AiService {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(endpoint))
+                .timeout(Duration.ofSeconds(timeoutInSeconds))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
                 .header("Authorization", "Bearer " + apiKey)
@@ -160,7 +161,7 @@ public class AiService {
     }
 
     private static boolean retryableStatus(int status) {
-        return status == 429 || status == 502 || status == 503 || status == 504;
+        return status == 429 || status == 500 || status == 502 || status == 503 || status == 504;
     }
 
     private static void backoff(long waitMs) {
@@ -241,6 +242,7 @@ public class AiService {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(endpoint))
+                .timeout(Duration.ofSeconds(timeoutInSeconds))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
                 .header("Authorization", "Bearer " + apiKey)

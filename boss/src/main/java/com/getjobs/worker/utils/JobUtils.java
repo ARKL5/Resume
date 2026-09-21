@@ -71,11 +71,4 @@ public class JobUtils {
         Random random = new Random();
         return random.nextInt((max - min) + 1) + min;
     }
-
-    public static void main(String[] args) {
-        Date star = new Date();
-        PlaywrightUtil.sleep(3);
-        String a = formatDuration(star, new Date());
-        System.out.println(a);
-    }
 }
