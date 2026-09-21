@@ -22,6 +22,16 @@ export type BossStatus = {
   needHumanReason?: string
   message?: string
   status?: string
+  screenFile?: string
+}
+
+export type ScreenFile = {
+  name: string
+  keyword?: string
+  jobType?: string
+  startedAt?: string
+  rows?: number
+  mtime?: number
 }
 
 export type CityPage = "杭州" | "上海" | "其它"
@@ -60,6 +70,12 @@ export function cityOf(it: ScreenItem): CityPage | null {
 
 export function isPlaced(it: ScreenItem): boolean {
   return stationOf(it) != null && cityOf(it) != null
+}
+
+export function fileLabel(f: ScreenFile): string {
+  const bits = [f.keyword, f.jobType, f.startedAt].filter(Boolean)
+  const head = bits.length > 0 ? bits.join(" · ") : f.name
+  return typeof f.rows === "number" ? `${head} ${f.rows}` : head
 }
 
 export function bossHref(href?: string): string {

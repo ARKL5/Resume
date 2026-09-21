@@ -105,9 +105,10 @@ val installPatchrightDriver = tasks.register("installPatchrightDriver") {
         driverDir.mkdirs()
 
         logger.lifecycle("正在下载 patchright-core@$patchrightVersion ...")
-        val npm = if (System.getProperty("os.name").lowercase().contains("windows")) "npm.cmd" else "npm"
+        val npm = findOnPath("npm")
+            ?: throw GradleException("PATH 里找不到 npm（Windows 上 mise shim 是 npm.exe，不是 npm.cmd）")
         providers.exec {
-            commandLine(npm, "install", "patchright-core@$patchrightVersion",
+            commandLine(npm.absolutePath, "install", "patchright-core@$patchrightVersion",
                     "--prefix", driverDir.absolutePath, "--no-audit", "--no-fund", "--loglevel=error")
         }.result.get().assertNormalExitValue()
 

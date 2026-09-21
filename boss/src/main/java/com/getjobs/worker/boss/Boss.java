@@ -107,6 +107,10 @@ public class Boss {
     private int emptyDetailStreak = 0;
     /** 列表接口里的活跃文案，encryptId -> activeTimeDesc。被动听，不自己请求。 */
     private final Map<String, String> listJsonActive = new ConcurrentHashMap<>();
+    /** 列表接口里的卡片。虚拟化时 DOM 会漏，用接口补收。 */
+    private final Map<String, CardPreview> listJsonCards = new ConcurrentHashMap<>();
+    /** 本轮每个搜词对应的 jsonl。杭州/上海同一词续写同一份。 */
+    private final Map<String, Path> keywordLogs = new LinkedHashMap<>();
     /** 一次开始筛选已占用的详情次数（跨词、跨城）。 */
     private int detailClicksReserved = 0;
     private boolean listJsonHooked = false;
@@ -259,7 +263,6 @@ public class Boss {
     }
 
     private void postJobByCity(String cityCode) {
-        loadScreenState();
         String searchUrl = getSearchUrl(cityCode);
         List<String> keywords = config.getKeywords();
         for (int ki = 0; ki < keywords.size(); ki++) {
@@ -277,12 +280,13 @@ public class Boss {
             String url = searchUrl + (searchUrl.contains("?") ? "&" : "?") + "query=" + encodedKeyword;
             // 单个关键词失败不该让整个投递任务中止，下面整段都包在 try 里
             try {
+            openKeywordLog(keyword);
             // 进列表页 + 等列表渲染，整段带重试
             openJobListWithRetry(keyword, url, cityCode);
 
             // 1. 滚到真正到底，边滚边收下卡片文本（列表可能虚拟化，滚完 DOM 里只剩末屏）
             Map<String, CardPreview> harvested = new LinkedHashMap<>();
-            harvestVisibleCards(keyword, harvested);
+            harvestInto(keyword, harvested);
             int lastHarvested = harvested.size();
             int stableTries = 0;
             int staleHits = 0;
@@ -308,7 +312,7 @@ public class Boss {
                     // 不看当前 DOM 张数（虚拟化时可见卡片常年约 15）。
                     page.evaluate("() => window.scrollBy(0, Math.floor(window.innerHeight * 1.5))");
                     PlaywrightUtil.sleep(SCROLL_SLEEP_SECONDS);
-                    harvestVisibleCards(keyword, harvested);
+                    harvestInto(keyword, harvested);
 
                     int currentHarvested = harvested.size();
                     if (currentHarvested == lastHarvested) {
@@ -319,13 +323,13 @@ public class Boss {
                     lastHarvested = currentHarvested;
                     log.info("【{}】滚动第{}轮，已收获{}条", keyword, i + 1, currentHarvested);
                     if (progressCallback != null && i % 5 == 0) {
-                        progressCallback.accept("滚动列表 " + keyword + " 已收获 " + currentHarvested, i + 1, 300);
+                        progressCallback.accept("滚动列表 " + keyword + " 已收获 " + currentHarvested, currentHarvested, 0);
                     }
 
                     if (stableTries >= 3) {
                         page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)");
                         PlaywrightUtil.sleep(SCROLL_SLEEP_SECONDS);
-                        harvestVisibleCards(keyword, harvested);
+                        harvestInto(keyword, harvested);
                         if (harvested.size() > lastHarvested) {
                             stableTries = 0;
                             lastHarvested = harvested.size();
@@ -364,9 +368,10 @@ public class Boss {
             if (!loadedAll) {
                 log.warn("【{}】滚动到达 300 轮上限仍未确认加载完毕，按当前已加载的岗位继续", keyword);
             }
-            harvestVisibleCards(keyword, harvested);
+            harvestInto(keyword, harvested);
             int loadedCount = harvested.size();
-            log.info("【{}】岗位已全部加载，去重后{}条", keyword, loadedCount);
+            log.info("【{}】岗位已全部加载，去重后{}条（列表接口{}）",
+                    keyword, loadedCount, listJsonCards.size());
             progressCallback.accept("岗位加载完成：" + keyword, 0, loadedCount);
 
             page.evaluate("window.scrollTo(0, 0);");
@@ -1115,8 +1120,7 @@ public class Boss {
      * 列表卡片没有招聘者头衔，不在这里打头衔。
      */
     private String ruleDropReason(String jobName, String company, String bossActive) {
-        if (bossActive != null && !bossActive.isBlank()
-                && !isActiveWithin3Days(bossActive)) {
+        if (hasHrActiveCopy(bossActive) && !isActiveWithin3Days(bossActive)) {
             return "HR未近3天活跃：" + bossActive.trim();
         }
         if (jobName != null && blackJobs != null && blackJobs.stream().anyMatch(jobName::contains)) {
@@ -1166,7 +1170,7 @@ public class Boss {
             return false;
         }
         String active = row.optString("active", "");
-        return !active.isBlank() && !isActiveWithin3Days(active);
+        return hasHrActiveCopy(active) && !isActiveWithin3Days(active);
     }
 
     /** 已过列表但详情活跃不是近 3 天：改判到规则，下次可按卡片文案重开。 */
@@ -1197,6 +1201,20 @@ public class Boss {
             indexSkipState(row);
         }
         persistScreenRows();
+    }
+
+    /** 列表/详情上的中文活跃文案。boolean 或空串不算，避免 JSONObject.optString 把 bossOnline 收成 true/false。 */
+    static boolean hasHrActiveCopy(String bossActive) {
+        if (bossActive == null || bossActive.isBlank()) {
+            return false;
+        }
+        String t = bossActive.trim();
+        if ("true".equalsIgnoreCase(t) || "false".equalsIgnoreCase(t)) {
+            return false;
+        }
+        return t.contains("在线") || t.contains("刚刚") || t.contains("今日") || t.contains("今天")
+                || t.contains("日") || t.contains("天") || t.contains("周") || t.contains("月")
+                || t.contains("年") || t.contains("未上线");
     }
 
     /** Boss 文案：在线 / 刚刚活跃 / 今日活跃 / 3日内活跃。本周及更早不算。 */
@@ -1323,6 +1341,31 @@ public class Boss {
 
     private static boolean isSearchCity(String cityPage) {
         return "杭州".equals(cityPage) || "上海".equals(cityPage);
+    }
+
+    private void harvestInto(String keyword, Map<String, CardPreview> harvested) {
+        harvestVisibleCards(keyword, harvested);
+        mergeListJsonCards(harvested);
+    }
+
+    private void mergeListJsonCards(Map<String, CardPreview> harvested) {
+        for (CardPreview preview : listJsonCards.values()) {
+            if (preview == null) {
+                continue;
+            }
+            String key = rowKey(preview.encryptId, preview.company, preview.job);
+            if (key.isEmpty()) {
+                continue;
+            }
+            CardPreview existing = harvested.get(key);
+            if (existing == null) {
+                harvested.put(key, preview);
+                continue;
+            }
+            if ("其它".equals(classifyCity(existing.area)) && isSearchCity(classifyCity(preview.area))) {
+                harvested.put(key, preview);
+            }
+        }
     }
 
     private void harvestVisibleCards(String keyword, Map<String, CardPreview> harvested) {
@@ -1574,27 +1617,40 @@ public class Boss {
         return localBossSettings.screenResultsPath();
     }
 
-    /** 本批不持久化：开始筛选覆盖指定 jsonl，不归档、不读历史文件。 */
+    /** 本轮开始：不清历史 jsonl。打一枚 runStamp，每个搜词另开一份。 */
     private void beginFreshRun() {
+        keywordLogs.clear();
         screenRows.clear();
         skipTerminalKeys.clear();
         hrDropKeys.clear();
         pendingDetailKeys.clear();
         otherCityPendingKeys.clear();
         listJsonActive.clear();
+        listJsonCards.clear();
         detailClicksReserved = 0;
-        Path file = screenLog();
-        try {
-            Path parent = file.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            Files.writeString(file, "", StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            log.info("本轮筛选写入 {}（覆盖，不归档）", file.toAbsolutePath());
-        } catch (Exception e) {
-            throw new IllegalStateException("无法写入 " + file + ": " + e.getMessage(), e);
+        localBossSettings.beginScreenRun();
+    }
+
+    /** 同一搜词跨城续写；新搜词新文件。 */
+    private void openKeywordLog(String keyword) {
+        listJsonActive.clear();
+        listJsonCards.clear();
+        Path existing = keywordLogs.get(keyword);
+        if (existing != null) {
+            localBossSettings.setCurrentScreenFile(existing);
+            loadScreenState();
+            log.info("本词续写 {}", existing.toAbsolutePath());
+            return;
         }
+        String jobType = localBossSettings.loadSearch().getJobType();
+        Path created = localBossSettings.createKeywordScreenFile(jobType, keyword);
+        keywordLogs.put(keyword, created);
+        screenRows.clear();
+        skipTerminalKeys.clear();
+        hrDropKeys.clear();
+        pendingDetailKeys.clear();
+        otherCityPendingKeys.clear();
+        log.info("本词筛选写入 {}（新文件，不覆盖历史）", created.toAbsolutePath());
     }
 
     private void loadScreenState() {
@@ -2107,6 +2163,22 @@ public class Boss {
         });
     }
 
+    /** 只要字符串活跃文案。optString 会把 boolean 收成 "true"/"false"。 */
+    private static String optActiveDesc(JSONObject obj, String key) {
+        if (obj == null || !obj.has(key) || obj.isNull(key)) {
+            return "";
+        }
+        Object v = obj.opt(key);
+        if (!(v instanceof String s)) {
+            return "";
+        }
+        s = s.trim();
+        if (s.isEmpty() || "true".equalsIgnoreCase(s) || "false".equalsIgnoreCase(s)) {
+            return "";
+        }
+        return s;
+    }
+
     private void ingestJobListActive(String body) {
         JSONObject root;
         try {
@@ -2135,26 +2207,82 @@ public class Boss {
             }
             JSONObject jobInfo = job.optJSONObject("jobInfo");
             JSONObject bossInfo = job.optJSONObject("bossInfo");
-            String encryptId = job.optString("encryptId", "");
-            if (encryptId.isBlank() && jobInfo != null) {
-                encryptId = jobInfo.optString("encryptId", "");
-            }
-            if (encryptId.isBlank()) {
-                encryptId = job.optString("encryptJobId", "");
-            }
-            String active = job.optString("activeTimeDesc", "");
-            if (active.isBlank() && bossInfo != null) {
-                active = bossInfo.optString("activeTimeDesc", "");
-            }
-            if (active.isBlank()) {
-                active = job.optString("bossOnline", "").isBlank()
-                        ? job.optString("activeTime", "")
-                        : job.optString("bossOnline", "");
-            }
-            if (!encryptId.isBlank() && !active.isBlank()) {
-                listJsonActive.put(encryptId, active.trim());
+            ingestListJobCard(job, jobInfo, bossInfo);
+        }
+    }
+
+    private void ingestListJobCard(JSONObject job, JSONObject jobInfo, JSONObject bossInfo) {
+        JSONObject brand = job.optJSONObject("brandComInfo");
+        if (brand == null) {
+            brand = job.optJSONObject("brand");
+        }
+        String encryptId = firstNonBlank(
+                jsonString(job, "encryptId"),
+                jsonString(job, "encryptJobId"),
+                jobInfo != null ? jsonString(jobInfo, "encryptId") : "");
+        if (encryptId.isBlank()) {
+            return;
+        }
+        String active = optActiveDesc(job, "activeTimeDesc");
+        if (active.isBlank() && bossInfo != null) {
+            active = optActiveDesc(bossInfo, "activeTimeDesc");
+        }
+        if (!active.isBlank()) {
+            listJsonActive.put(encryptId, active);
+        }
+        String jobName = firstNonBlank(
+                jsonString(job, "jobName"),
+                jobInfo != null ? jsonString(jobInfo, "jobName") : "");
+        String company = firstNonBlank(
+                jsonString(job, "brandName"),
+                brand != null ? jsonString(brand, "brandName") : "",
+                jsonString(job, "companyName"));
+        String city = firstNonBlank(
+                jsonString(job, "cityName"),
+                jobInfo != null ? jsonString(jobInfo, "locationName") : "",
+                jsonString(job, "city"));
+        String district = firstNonBlank(jsonString(job, "areaDistrict"), jsonString(job, "district"));
+        String biz = jsonString(job, "businessDistrict");
+        String area = joinArea(city, district, biz);
+        if (jobName.isBlank() && company.isBlank()) {
+            return;
+        }
+        listJsonCards.put(encryptId, new CardPreview(
+                jobName, company, area, active, "/job_detail/" + encryptId + ".html", encryptId));
+    }
+
+    private static String jsonString(JSONObject obj, String key) {
+        if (obj == null || !obj.has(key) || obj.isNull(key)) {
+            return "";
+        }
+        Object v = obj.opt(key);
+        return v instanceof String s ? s.trim() : "";
+    }
+
+    private static String firstNonBlank(String... parts) {
+        if (parts == null) {
+            return "";
+        }
+        for (String p : parts) {
+            if (p != null && !p.isBlank()) {
+                return p.trim();
             }
         }
+        return "";
+    }
+
+    private static String joinArea(String city, String district, String biz) {
+        StringBuilder sb = new StringBuilder();
+        for (String p : new String[]{city, district, biz}) {
+            if (p == null || p.isBlank()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append('·');
+            }
+            sb.append(p.trim());
+        }
+        return sb.toString();
     }
 
     /**

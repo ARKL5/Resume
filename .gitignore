@@ -12,4 +12,5 @@ boss/build/
 boss/.gradle/
 boss/target/
 boss/screen-*.jsonl
+boss/screen-results/
 boss/opened-chats.jsonl

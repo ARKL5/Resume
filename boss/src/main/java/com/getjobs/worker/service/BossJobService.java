@@ -30,6 +30,7 @@ public class BossJobService implements JobPlatformService {
     private final ConfigService configService;
     private final ObjectProvider<Boss> bossProvider;
     private final HumanAttention humanAttention;
+    private final com.getjobs.application.service.LocalBossSettings localBossSettings;
 
     // 任务运行状态
     private volatile boolean isRunning = false;
@@ -163,6 +164,8 @@ public class BossJobService implements JobPlatformService {
         status.put("platform", PLATFORM);
         status.put("isRunning", isRunning);
         status.put("isLoggedIn", playwrightManager.isLoggedIn(PLATFORM));
+        java.nio.file.Path cur = localBossSettings.currentScreenFile();
+        status.put("screenFile", cur == null ? "" : cur.getFileName().toString());
         status.putAll(humanAttention.snapshot());
         return status;
     }

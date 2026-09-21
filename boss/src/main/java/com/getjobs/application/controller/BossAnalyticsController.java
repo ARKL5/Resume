@@ -1,6 +1,7 @@
 package com.getjobs.application.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.nio.charset.StandardCharsets;
@@ -27,11 +28,38 @@ public class BossAnalyticsController {
     }
 
     /**
-     * 对照页：一岗一行，只读当前 jsonl。
+     * 对照页可切换的筛选结果列表。只读。
+     */
+    @GetMapping("/screen-files")
+    public Map<String, Object> screenFiles() {
+        Path cur = localBossSettings.currentScreenFile();
+        return Map.of(
+                "files", localBossSettings.listScreenFiles(),
+                "current", cur == null ? "" : cur.getFileName().toString()
+        );
+    }
+
+    /**
+     * 对照页：一岗一行。file 缺省则读正在写的那份，否则读点名的 jsonl。
      */
     @GetMapping("/screen-results")
-    public Map<String, Object> screenResults() {
-        Path log = localBossSettings.screenResultsPath();
+    public ResponseEntity<Map<String, Object>> screenResults(
+            @RequestParam(value = "file", required = false) String file) {
+        Path log;
+        try {
+            if (file != null && !file.isBlank()) {
+                log = localBossSettings.resolveListedFile(file.trim());
+            } else {
+                log = localBossSettings.screenResultsPath();
+            }
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "items", List.of(),
+                    "file", file == null ? "" : file,
+                    "error", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.ok(Map.of("items", List.of(), "file", ""));
+        }
         List<Map<String, Object>> items = new ArrayList<>();
         if (Files.exists(log)) {
             try {
@@ -50,10 +78,13 @@ public class BossAnalyticsController {
                     }
                 }
             } catch (Exception e) {
-                return Map.of("items", List.of(), "error", e.getMessage());
+                return ResponseEntity.ok(Map.of(
+                        "items", List.of(),
+                        "file", log.getFileName().toString(),
+                        "error", e.getMessage()));
             }
         }
-        return Map.of("items", items);
+        return ResponseEntity.ok(Map.of("items", items, "file", log.getFileName().toString()));
     }
 
     private static boolean isPlacedRow(Map<String, Object> row) {

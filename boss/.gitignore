@@ -65,4 +65,5 @@ browser-data/
 
 # 本机筛选 / 已开聊落盘
 screen-*.jsonl
+screen-results/
 opened-chats.jsonl

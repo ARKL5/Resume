@@ -10,16 +10,22 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 本机运行配置：只读 boss.yaml。已开聊记录仍是 opened-chats.jsonl。
@@ -30,6 +36,13 @@ public class LocalBossSettings {
 
     private static final Path SEARCH = Path.of("boss.yaml");
     private static final Path OPENED = Path.of("opened-chats.jsonl");
+    private static final Pattern SCREEN_FILE =
+            Pattern.compile("^(\\d{8}-\\d{6})_([^_]+)_(.+)\\.jsonl$");
+    private static final DateTimeFormatter SCREEN_STAMP =
+            DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneId.systemDefault());
+
+    private volatile Path currentScreenFile;
+    private volatile String screenRunStamp;
 
     private final ObjectMapper yaml = new ObjectMapper(
             new YAMLFactory().disable(YAMLGenerator.Feature.WRITE_DOC_START_MARKER));
@@ -71,16 +84,161 @@ public class LocalBossSettings {
         return file != null ? file : new BlacklistFile();
     }
 
-    public Path screenResultsPath() {
-        String raw = loadSearch().getScreenResults();
-        if (raw == null || raw.isBlank()) {
-            throw new IllegalStateException("boss.yaml 的 screenResults 不能为空");
+    public Path screenResultsDir() {
+        SearchFile file = loadSearch();
+        String dirRaw = file.getScreenResultsDir();
+        if (dirRaw != null && !dirRaw.isBlank()) {
+            return resolvePath(dirRaw.trim());
         }
-        Path path = Path.of(raw.trim());
+        String legacy = file.getScreenResults();
+        if (legacy != null && !legacy.isBlank()) {
+            Path p = resolvePath(legacy.trim());
+            Path parent = p.getParent();
+            return parent != null ? parent : Path.of(System.getProperty("user.dir", "."));
+        }
+        return resolvePath("screen-results");
+    }
+
+    public Path screenResultsPath() {
+        Path cur = currentScreenFile;
+        if (cur != null) {
+            return cur;
+        }
+        List<Map<String, Object>> files = listScreenFiles();
+        if (!files.isEmpty()) {
+            return resolveListedFile(String.valueOf(files.get(0).get("name")));
+        }
+        throw new IllegalStateException("还没有筛选结果 jsonl");
+    }
+
+    public Path currentScreenFile() {
+        return currentScreenFile;
+    }
+
+    public void setCurrentScreenFile(Path path) {
+        currentScreenFile = path;
+    }
+
+    /** 一次筛选共用一枚时间戳；每个搜词一份 jsonl，前缀相同。 */
+    public synchronized void beginScreenRun() {
+        screenRunStamp = SCREEN_STAMP.format(Instant.now());
+        currentScreenFile = null;
+    }
+
+    public synchronized Path createKeywordScreenFile(String jobType, String keyword) {
+        Path dir = screenResultsDir();
+        try {
+            Files.createDirectories(dir);
+            String stamp = screenRunStamp;
+            if (stamp == null || stamp.isBlank()) {
+                stamp = SCREEN_STAMP.format(Instant.now());
+                screenRunStamp = stamp;
+            }
+            String name = stamp + "_" + slug(jobType) + "_" + slug(keyword) + ".jsonl";
+            Path file = dir.resolve(name);
+            Files.writeString(file, "", StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            currentScreenFile = file;
+            return file;
+        } catch (IOException e) {
+            throw new IllegalStateException("无法创建筛选结果: " + e.getMessage(), e);
+        }
+    }
+
+    public List<Map<String, Object>> listScreenFiles() {
+        Map<String, Path> found = new LinkedHashMap<>();
+        addJsonl(found, screenResultsDir());
+        addJsonl(found, Path.of(System.getProperty("user.dir", ".")));
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Path path : found.values()) {
+            out.add(describeScreenFile(path));
+        }
+        out.sort(Comparator.<Map<String, Object>>comparingLong(
+                m -> ((Number) m.getOrDefault("mtime", 0L)).longValue()).reversed());
+        return out;
+    }
+
+    public Path resolveListedFile(String name) {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("缺少筛选结果文件名");
+        }
+        String base = Path.of(name.trim()).getFileName().toString();
+        if (!base.equals(name.trim()) || !base.endsWith(".jsonl") || base.contains("..")) {
+            throw new IllegalArgumentException("非法筛选结果文件名");
+        }
+        Path inDir = screenResultsDir().resolve(base).normalize();
+        Path dir = screenResultsDir().toAbsolutePath().normalize();
+        if (inDir.toAbsolutePath().normalize().startsWith(dir) && Files.isRegularFile(inDir)) {
+            return inDir;
+        }
+        Path cwd = Path.of(System.getProperty("user.dir", ".")).resolve(base).normalize();
+        if (cwd.getFileName().toString().equals(base) && Files.isRegularFile(cwd)) {
+            return cwd;
+        }
+        throw new IllegalArgumentException("找不到筛选结果: " + base);
+    }
+
+    private static Path resolvePath(String raw) {
+        Path path = Path.of(raw);
         if (!path.isAbsolute()) {
             path = Path.of(System.getProperty("user.dir", ".")).resolve(path).normalize();
         }
         return path;
+    }
+
+    private static void addJsonl(Map<String, Path> found, Path dir) {
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, "*.jsonl")) {
+            for (Path p : ds) {
+                String name = p.getFileName().toString();
+                if ("opened-chats.jsonl".equals(name)) {
+                    continue;
+                }
+                found.putIfAbsent(name, p);
+            }
+        } catch (IOException ignore) {
+        }
+    }
+
+    private Map<String, Object> describeScreenFile(Path path) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        String name = path.getFileName().toString();
+        m.put("name", name);
+        Matcher g = SCREEN_FILE.matcher(name);
+        if (g.matches()) {
+            m.put("startedAt", g.group(1));
+            m.put("jobType", g.group(2));
+            m.put("keyword", g.group(3).replace('-', ' '));
+        }
+        try {
+            m.put("mtime", Files.getLastModifiedTime(path).toMillis());
+            int rows = 0;
+            for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
+                if (line != null && !line.isBlank()) {
+                    rows++;
+                }
+            }
+            m.put("rows", rows);
+        } catch (IOException e) {
+            m.put("mtime", 0L);
+            m.put("rows", 0);
+        }
+        return m;
+    }
+
+    static String slug(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "na";
+        }
+        String s = raw.trim().replaceAll("[\\\\/:*?\"<>|\\s]+", "-");
+        s = s.replaceAll("-+", "-");
+        s = s.replaceAll("^-|-$", "");
+        if (s.length() > 80) {
+            s = s.substring(0, 80);
+        }
+        return s.isEmpty() ? "na" : s;
     }
 
     public int detailLimit() {
@@ -286,6 +444,7 @@ public class LocalBossSettings {
         private Integer keywordGapSeconds = 300;
         private Boolean sendImgResume = false;
         private String screenResults = "";
+        private String screenResultsDir = "";
         private Integer detailLimit = 0;
         private AiFile ai = new AiFile();
         private String greeting = "";

@@ -8,11 +8,13 @@ import StationTable from "./station-table"
 import {
   bossHref,
   cityOf,
+  fileLabel,
   isPlaced,
   jobKey,
   stationOf,
   type BossStatus,
   type CityPage,
+  type ScreenFile,
   type ScreenItem,
   type StationId,
 } from "./types"
@@ -27,6 +29,11 @@ type NavSnap = {
 export default function ScreenBoard() {
   const [items, setItems] = useState<ScreenItem[]>([])
   const [status, setStatus] = useState<BossStatus | null>(null)
+  const [files, setFiles] = useState<ScreenFile[]>([])
+  const [pinnedFile, setPinnedFile] = useState<string | null>(null)
+  const [loadedFile, setLoadedFile] = useState("")
+  const pinnedRef = useRef<string | null>(null)
+  const loadGen = useRef(0)
   const [city, setCity] = useState<CityPage>("杭州")
   const [station, setStation] = useState<StationId>("rule")
   const [query, setQuery] = useState("")
@@ -41,20 +48,32 @@ export default function ScreenBoard() {
   const stale = query !== deferredQuery
   const navRef = useRef<NavSnap>({ slice: [], page: 1, totalPages: 1, hi: 0 })
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (file = pinnedRef.current) => {
+    const gen = ++loadGen.current
     try {
-      const [resultsRes, statusRes] = await Promise.all([
-        fetch(apiUrl("/api/boss/screen-results")),
+      const resultsPath = file
+        ? `/api/boss/screen-results?file=${encodeURIComponent(file)}`
+        : "/api/boss/screen-results"
+      const [resultsRes, statusRes, filesRes] = await Promise.all([
+        fetch(apiUrl(resultsPath)),
         fetch(apiUrl("/api/boss/status")),
+        fetch(apiUrl("/api/boss/screen-files")),
       ])
+      if (gen !== loadGen.current) return
       if (!resultsRes.ok) throw new Error("results")
-      const data: { items?: ScreenItem[] } = await resultsRes.json()
+      const data: { items?: ScreenItem[]; file?: string } = await resultsRes.json()
       setItems((Array.isArray(data.items) ? data.items : []).filter(isPlaced))
+      setLoadedFile(typeof data.file === "string" ? data.file : file ?? "")
       if (statusRes.ok) {
         setStatus(await statusRes.json())
       }
+      if (filesRes.ok) {
+        const listed: { files?: ScreenFile[] } = await filesRes.json()
+        setFiles(Array.isArray(listed.files) ? listed.files : [])
+      }
       setOffline(false)
     } catch {
+      if (gen !== loadGen.current) return
       setOffline(true)
     }
   }, [])
@@ -272,6 +291,7 @@ export default function ScreenBoard() {
         <span className={offline ? "status is-off" : running ? "status is-run" : "status"}>
           <b>{offline ? "连不上 9527" : running ? "筛选进行中" : "空闲"}</b>
           <span className="n"> {items.length}</span>
+          {loadedFile ? <span className="file-name"> {loadedFile}</span> : null}
         </span>
       </div>
 
@@ -288,6 +308,26 @@ export default function ScreenBoard() {
       ) : null}
 
       <div className="search-row">
+        <div className="file-pick">
+          <select
+            value={pinnedFile ?? ""}
+            onChange={(e) => {
+              const v = e.target.value === "" ? null : e.target.value
+              pinnedRef.current = v
+              setPinnedFile(v)
+              setPage(1)
+              setHi(0)
+              void load(v)
+            }}
+          >
+            <option value="">跟着筛选</option>
+            {files.map((f) => (
+              <option key={f.name} value={f.name}>
+                {fileLabel(f)}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="search">
           <input
             value={query}

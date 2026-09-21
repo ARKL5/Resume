@@ -1,7 +1,10 @@
-# Agent 改这一份。对照页不改配置。SCREEN_ONLY 在代码里，这里没有开聊开关。
+# Agent 改这一份。对照页不改配置，只切换看哪份筛选结果。SCREEN_ONLY 在代码里，这里没有开聊开关。
 keywords:
   - AI Agent
-  - 智能体开发
+  - Agent开发
+  - 智能体应用
+  - 大模型应用
+  - AI应用开发
 cities:
   - 杭州
   - 上海
@@ -16,15 +19,15 @@ salary: []
 scale: []
 stage: []
 waitTime: 18
-keywordGapSeconds: 300
+keywordGapSeconds: 60
 sendImgResume: false
-screenResults: screen-trial.jsonl
+screenResultsDir: screen-results
 detailLimit: 0
 
 ai:
   baseUrl: http://127.0.0.1:8317/v1
   apiKey: f77c118b061fbe85650bc9740e42a0fadc177085a3c29e4f
-  model: deepseek-v4-flash
+  model: qwen3.8-flash
 
 greeting: |
   您好，浙江理工大学，常驻杭州，每周 5 天，随时到岗。独立做过零售客服 Agent：在 tau2-bench 上做确定性评测和优化，任务通过率80.7%（92/114），另有用户隔离的可靠 RAG 后端。期待沟通。
@@ -123,16 +126,15 @@ candidateProfile: |
 
 prompts:
   title: |
-    你是求职筛选器。现在只有列表卡片上的岗位标题等少量信息，还没有 JD。
-    HR 近3天、外包/猎头字面、运营/标注/训练/销售/客服/前端/客户端、黑名单已用规则过完。城市只分页，不要因城市淘汰。
-    三态，不要编造未给出的信息。
-    短偏好：杭州/上海 Python + AI 实习；Agent/智能体应用优先。
+    你是求职筛选器。只有公司名和岗位标题，没有 JD。按偏好三态判断，不要编造未给出的信息。
+    搜索已是实习入口，标题没有「实习」也可以 click。
+    偏好：杭州/上海，Python + AI 实习；Agent/智能体应用优先。知识库/RAG 技术实习也可以 click。日常会频繁用 AI 的技术实习也可以 click。出勤、薪资、转正不参与判断。
     搜索词：{keyword}
     公司：{company}
     岗位标题：{job}
-    click：标题已能看出是技术向开发/工程师/后端/Agent 实现实习，本可点 JD。
-    park：产品经理/产品运营/产品助理（即使带 Agent/AI）、纯算法科研、不确定。待读，不点 JD。
-    drop：不像实习、非技术、纯前端/客户端、或纯 Java/游戏/嵌入式且标题没有 AI/Agent。
+    click：技术向开发/工程师/后端/全栈，且标题含 Agent、智能体、LLM、大模型、AI应用、RAG 或知识库；或 Python 且含 AI。Agent 算法实习且含评测/评估/应用。测试开发或质量效能且含 Agent 应用开发。
+    park：产品经理/产品实习生/产品运营/产品助理/产品设计/体验设计（即使带 Agent/AI）。算法研究员、论文、世界模型、量化研究。只有「AI实习生」等看不出开发。其余职责看不出。待读，不点 JD。
+    drop：后端/全栈/python/软件开发实习但标题没有 Agent/智能体/LLM/大模型/AI应用/RAG/知识库。纯 Java/游戏/嵌入式且标题没有 AI/Agent。纯前端/客户端。高级/专家/资深。明显社招全职。运营、标注、影视训练、训练师、销售、客服。外包、派遣、代招、驻场、猎头、招聘顾问。实施、驻场咨询、技术支持、助理、财务、非技术。只有「大模型」字样、实际是运营/训练/标注。
     只输出 JSON：{"action":"click或park或drop","reason":"不超过40字"}
   jd: |
     你是求职筛选器。只根据材料判断该实习是否值得候选人开聊。不要编造候选人经历或数字。
