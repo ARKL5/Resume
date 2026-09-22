@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import random
 import subprocess
@@ -20,7 +21,7 @@ from boss_screen.chat import (
     next_chat_step,
     should_record,
 )
-from boss_screen.config import Settings, load_settings, screen_file_name, search_url
+from boss_screen.config import Settings, load_settings, screen_file_name, search_url, setup_logging
 from boss_screen.opened import append_opened, load_ids
 from boss_screen.proc_lock import acquire, release, take_lock
 from boss_screen.rules import (
@@ -134,6 +135,7 @@ def test_search_url_and_file_name(tmp_path: Path):
     assert settings.opened_chats == tmp_path / "opened-chats.jsonl"
     assert settings.resume_image == tmp_path / "resume.jpg"
     assert settings.screen_dir == tmp_path / "screen-results"
+    assert settings.log_file == tmp_path / "screen-results" / "screen.log"
     url = search_url(settings, "101210100")
     assert url.startswith("https://www.zhipin.com/web/geek/jobs?")
     assert "city=101210100" in url
@@ -508,6 +510,42 @@ def test_screen_page_does_not_call_the_old_api():
     )
     assert "9527" not in text
     assert "ack-human" not in text
+
+
+def test_setup_logging_writes_to_file(tmp_path: Path):
+    target = tmp_path / "custom.log"
+    log_file = setup_logging(target)
+    assert log_file == target
+    test_log = logging.getLogger("boss_screen")
+    test_log.info("测试写入运行日志")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    content = log_file.read_text(encoding="utf-8")
+    assert "测试写入运行日志" in content
+
+    # 当 log_file 为 None 时只打控制台，不报错
+    assert setup_logging(None) is None
+
+
+def test_load_settings_log_file_options(tmp_path: Path):
+    base_data = {
+        "keywords": ["AI Agent"],
+        "cities": ["杭州"],
+        "ai": {"baseUrl": "http://127.0.0.1/v1", "apiKey": "k", "model": "m"},
+        "prompts": {"title": "t", "jd": "j"},
+        "codes": {"city": {"杭州": "101210100"}},
+    }
+    # 自定义路径
+    p1 = tmp_path / "b1.yaml"
+    p1.write_text(yaml.safe_dump({**base_data, "logFile": "logs/test.log"}), encoding="utf-8")
+    s1 = load_settings(p1)
+    assert s1.log_file == tmp_path / "logs" / "test.log"
+
+    # 留空禁用
+    p2 = tmp_path / "b2.yaml"
+    p2.write_text(yaml.safe_dump({**base_data, "logFile": ""}), encoding="utf-8")
+    s2 = load_settings(p2)
+    assert s2.log_file is None
 
 
 class _UrlPage:

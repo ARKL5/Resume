@@ -13,7 +13,7 @@ from pathlib import Path
 from boss_screen.ai import complete, jd_prompt, parse_keep, parse_reason, parse_title_action, title_prompt
 from boss_screen.browser import detail_gap_seconds, fresh_page, halt_if_risk, needs_human, open_chrome, sleep_until
 from boss_screen.cards import Card, ingest_job_list, overlay, parse_detail
-from boss_screen.config import Settings, load_settings, screen_file_name, search_url
+from boss_screen.config import Settings, load_settings, screen_file_name, search_url, setup_logging
 from boss_screen.proc_lock import release, take_lock
 from boss_screen.rules import (
     ai_fail_reason,
@@ -88,8 +88,8 @@ _LIST_CONTAINERS = ", ".join(
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     settings = load_settings()
+    setup_logging(settings.log_file)
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda _s, _f: stop.set())
     lock = take_lock()

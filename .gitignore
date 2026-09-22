@@ -13,3 +13,4 @@ resume/output/
 /opened-chats.jsonl
 /resume.jpg
 /.boss-screen.lock
+*.log

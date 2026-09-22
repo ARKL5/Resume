@@ -19,9 +19,10 @@ stage: []
 waitTime: 18
 keywordGapSeconds: 60
 sendImgResume: false
-screenResultsDir: screen-experiments
-detailLimit: 0
-onRisk: stop
+screenResultsDir: screen-results
+logFile: screen-results/screen.log
+detailLimit: -1
+onRisk: wait
 
 ai:
   baseUrl: http://127.0.0.1:8317/v1

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,6 +13,26 @@ from boss_screen.rules import slug
 UNLIMITED = "0"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 YAML_PATH = REPO_ROOT / "boss.yaml"
+
+
+def setup_logging(log_file: Path | None) -> Path | None:
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers.clear()
+    root.addHandler(stream_handler)
+
+    if log_file is not None:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(str(log_file), encoding="utf-8")
+        file_handler.setFormatter(formatter)
+        root.addHandler(file_handler)
+
+    return log_file
 
 
 @dataclass(frozen=True)
@@ -34,6 +55,7 @@ class Settings:
     browser_data: Path
     opened_chats: Path
     resume_image: Path
+    log_file: Path | None
     greeting: str
     config_path: Path
     ai_base: str
@@ -88,6 +110,7 @@ def load_settings(path: Path | None = None) -> Settings:
     black = data.get("blacklist") or {}
     # screenArchiveDir 只给对照页，续跑不读。
     screen_raw = str(data.get("screenResultsDir") or "screen-results").strip()
+    log_file = _parse_log_file(root, screen_raw, data.get("logFile"))
     gap = data.get("keywordGapSeconds")
     return Settings(
         keywords=keywords,
@@ -108,6 +131,7 @@ def load_settings(path: Path | None = None) -> Settings:
         browser_data=(root / "browser-data").resolve(),
         opened_chats=(root / "opened-chats.jsonl").resolve(),
         resume_image=(root / "resume.jpg").resolve(),
+        log_file=log_file,
         greeting=str(data.get("greeting") or "").strip(),
         config_path=yaml_path,
         ai_base=base.rstrip("/"),
@@ -150,6 +174,18 @@ def search_url(settings: Settings, city_code: str) -> str:
 
 def screen_file_name(stamp: str, job_type: str, keyword: str) -> str:
     return f"{stamp}_{slug(job_type)}_{slug(keyword)}.jsonl"
+
+
+def _parse_log_file(root: Path, screen_raw: str, log_raw: object) -> Path | None:
+    if log_raw is None:
+        return (root / screen_raw / "screen.log").resolve()
+    if isinstance(log_raw, str):
+        text = log_raw.strip()
+        if not text:
+            return None
+        candidate = Path(text)
+        return candidate if candidate.is_absolute() else (root / candidate).resolve()
+    return None
 
 
 def _strings(value) -> list[str]:

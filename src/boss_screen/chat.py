@@ -7,7 +7,7 @@ import signal
 import threading
 
 from boss_screen.browser import detail_gap_seconds, fresh_page, halt_if_risk, open_chrome, sleep_until
-from boss_screen.config import load_settings
+from boss_screen.config import load_settings, setup_logging
 from boss_screen.opened import append_opened, load_ids
 from boss_screen.proc_lock import release, take_lock
 from boss_screen.rules import valid_encrypt_id
@@ -21,7 +21,6 @@ _IMAGE_BOX = "div.btn-sendimg[aria-label='发送图片'], div[aria-label='发送
 
 
 def main(argv: list[str] | None = None) -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     import sys
 
     args = list(sys.argv[1:] if argv is None else argv)
@@ -29,6 +28,7 @@ def main(argv: list[str] | None = None) -> None:
     if not encrypt_ids:
         raise SystemExit("需要当场点名的 encryptId")
     settings = load_settings()
+    setup_logging(settings.log_file)
     if not settings.greeting:
         raise SystemExit("boss.yaml 的 greeting 为空")
     if send_image and not settings.resume_image.is_file():
