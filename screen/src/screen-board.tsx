@@ -1,5 +1,4 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
-import { apiUrl } from "./api"
 import { CITY_PAGES, STATIONS, lanesFor } from "./constants"
 import { pageSizeForViewport } from "./page-size"
 import { loadStars, saveStars } from "./stars"
@@ -8,12 +7,14 @@ import StationTable from "./station-table"
 import {
   bossHref,
   cityOf,
+  defaultScreenKey,
+  fileKey,
   fileLabel,
+  needsEmptySeenOption,
   isPlaced,
   jobKey,
   laneOf,
   stationOf,
-  type BossStatus,
   type CityPage,
   type LaneId,
   type ScreenFile,
@@ -30,8 +31,8 @@ type NavSnap = {
 
 export default function ScreenBoard() {
   const [items, setItems] = useState<ScreenItem[]>([])
-  const [status, setStatus] = useState<BossStatus | null>(null)
   const [files, setFiles] = useState<ScreenFile[]>([])
+  const [archiveOn, setArchiveOn] = useState(false)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [loadedFile, setLoadedFile] = useState("")
   const selectedRef = useRef<string | null>(null)
@@ -54,22 +55,17 @@ export default function ScreenBoard() {
   const load = useCallback(async (want?: string | null) => {
     const gen = ++loadGen.current
     try {
-      const [statusRes, filesRes] = await Promise.all([
-        fetch(apiUrl("/api/boss/status")),
-        fetch(apiUrl("/api/boss/screen-files")),
-      ])
+      const filesRes = await fetch("/api/screen-files")
       if (gen !== loadGen.current) return
-      if (statusRes.ok) setStatus(await statusRes.json())
-      let listed: ScreenFile[] = []
-      if (filesRes.ok) {
-        const body: { files?: ScreenFile[] } = await filesRes.json()
-        listed = Array.isArray(body.files) ? body.files : []
-      }
+      if (!filesRes.ok) throw new Error("files")
+      const body: { files?: ScreenFile[]; archive?: boolean } = await filesRes.json()
+      const listed = Array.isArray(body.files) ? body.files : []
       setFiles(listed)
-      const names = new Set(listed.map((f) => f.name))
+      setArchiveOn(Boolean(body.archive))
+      const names = new Set(listed.map((f) => fileKey(f)))
       let file = want !== undefined ? want : selectedRef.current
       if (!file || !names.has(file)) {
-        file = listed[0]?.name ?? null
+        file = defaultScreenKey(listed)
         selectedRef.current = file
         setSelectedFile(file)
         setPage(1)
@@ -81,8 +77,11 @@ export default function ScreenBoard() {
         setOffline(false)
         return
       }
+      const split = file.indexOf(":")
+      const group = split >= 0 ? file.slice(0, split) : "seen"
+      const name = split >= 0 ? file.slice(split + 1) : file
       const resultsRes = await fetch(
-        apiUrl(`/api/boss/screen-results?file=${encodeURIComponent(file)}`),
+        `/api/screen-results?group=${encodeURIComponent(group)}&file=${encodeURIComponent(name)}`,
       )
       if (gen !== loadGen.current) return
       if (!resultsRes.ok) throw new Error("results")
@@ -112,15 +111,6 @@ export default function ScreenBoard() {
       return next
     })
   }, [])
-
-  const ackHuman = useCallback(async () => {
-    try {
-      await fetch(apiUrl("/api/boss/ack-human"), { method: "POST" })
-    } catch {
-      // ignore
-    }
-    void load()
-  }, [load])
 
   const cityCounts = useMemo(() => {
     const m: Record<CityPage, number> = { 杭州: 0, 上海: 0, 其它: 0 }
@@ -297,8 +287,7 @@ export default function ScreenBoard() {
     return () => window.removeEventListener("keydown", onKey)
   }, [onToggleStar])
 
-  const running = Boolean(status?.isRunning)
-  const needHuman = Boolean(status?.needHuman)
+
 
   return (
     <div className="page">
@@ -332,9 +321,8 @@ export default function ScreenBoard() {
             </button>
           ))}
         </div>
-        <span className={offline ? "status is-off" : running ? "status is-run" : "status"}>
-          <b>{offline ? "连不上 9527" : running ? "筛选进行中" : "空闲"}</b>
-          <span className="n"> {items.length}</span>
+        <span className={offline ? "status is-off" : "status"}>
+          <span className="n">{offline ? "读不到结果" : items.length}</span>
           {loadedFile ? <span className="file-name"> {loadedFile}</span> : null}
         </span>
       </div>
@@ -359,25 +347,14 @@ export default function ScreenBoard() {
         </div>
       ) : null}
 
-      {needHuman ? (
-        <div className="human">
-          <div>
-            <p>需要你处理人机验证或登录</p>
-            <p className="sub">{status?.needHumanReason || "请到 Boss 拉起的 Chrome 处理。"}</p>
-          </div>
-          <button type="button" onClick={() => void ackHuman()}>
-            我处理好了，继续
-          </button>
-        </div>
-      ) : null}
-
       <div className="search-row">
         <div className="file-pick">
           <select
             value={selectedFile ?? ""}
-            disabled={files.length === 0}
+            disabled={!archiveOn && files.length === 0}
             onChange={(e) => {
               const v = e.target.value
+              if (!v) return
               selectedRef.current = v
               setSelectedFile(v)
               setPage(1)
@@ -385,11 +362,35 @@ export default function ScreenBoard() {
               void load(v)
             }}
           >
-            {files.length === 0 ? (
+            {!archiveOn && files.length === 0 ? (
               <option value="">没有筛选结果</option>
+            ) : archiveOn ? (
+              <>
+                <optgroup label="已筛">
+                  {needsEmptySeenOption(archiveOn, files) ? (
+                    <option value="">已筛目录是空的</option>
+                  ) : null}
+                  {files
+                    .filter((f) => f.group !== "archive")
+                    .map((f) => (
+                      <option key={fileKey(f)} value={fileKey(f)}>
+                        {fileLabel(f)}
+                      </option>
+                    ))}
+                </optgroup>
+                <optgroup label="实验目录">
+                  {files
+                    .filter((f) => f.group === "archive")
+                    .map((f) => (
+                      <option key={fileKey(f)} value={fileKey(f)}>
+                        {fileLabel(f)}
+                      </option>
+                    ))}
+                </optgroup>
+              </>
             ) : (
               files.map((f) => (
-                <option key={f.name} value={f.name}>
+                <option key={fileKey(f)} value={fileKey(f)}>
                   {fileLabel(f)}
                 </option>
               ))

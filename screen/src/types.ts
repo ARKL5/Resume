@@ -15,23 +15,29 @@ export type ScreenItem = {
   cityPage?: string
 }
 
-export type BossStatus = {
-  isRunning?: boolean
-  isLoggedIn?: boolean
-  needHuman?: boolean
-  needHumanReason?: string
-  message?: string
-  status?: string
-  screenFile?: string
-}
-
 export type ScreenFile = {
   name: string
+  group?: "seen" | "archive"
   keyword?: string
   jobType?: string
   startedAt?: string
   rows?: number
   mtime?: number
+}
+
+export function fileKey(file: ScreenFile): string {
+  const group = file.group === "archive" ? "archive" : "seen"
+  return `${group}:${file.name}`
+}
+
+export function defaultScreenKey(files: ScreenFile[]): string | null {
+  const seen = files.find((file) => file.group !== "archive")
+  return seen ? fileKey(seen) : null
+}
+
+export function needsEmptySeenOption(archive: boolean, files: ScreenFile[]): boolean {
+  if (!archive) return false
+  return !files.some((file) => file.group !== "archive")
 }
 
 export type CityPage = "杭州" | "上海" | "其它"

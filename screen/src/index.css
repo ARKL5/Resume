@@ -159,11 +159,7 @@ a {
   color: var(--ink);
 }
 
-.status.is-run b {
-  color: var(--live);
-}
-
-.status.is-off b {
+.status.is-off {
   color: var(--seal);
 }
 
@@ -237,36 +233,6 @@ a {
 .file-pick select:focus-visible {
   outline: 2px solid var(--acc);
   outline-offset: 2px;
-}
-
-.human {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  margin-bottom: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--seal);
-  color: var(--seal);
-  font-size: 13px;
-}
-
-.human p {
-  margin: 0;
-}
-
-.human .sub {
-  font-size: 12px;
-  opacity: 0.85;
-}
-
-.human button {
-  background: var(--seal);
-  color: #eff1f5;
-  border: 0;
-  padding: 6px 12px;
-  cursor: pointer;
 }
 
 .stale {
