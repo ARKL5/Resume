@@ -39,9 +39,10 @@ function MasterList({ items, selectedIndex, stars, onSelect, onToggleStar }: Pro
             <JobCard
               key={key}
               item={it}
+              index={idx}
               isSelected={idx === selectedIndex}
               isStarred={stars.has(key)}
-              onSelect={() => onSelect(idx)}
+              onSelect={onSelect}
               onToggleStar={onToggleStar}
             />
           )

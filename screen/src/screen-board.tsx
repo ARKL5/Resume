@@ -22,47 +22,58 @@ import {
   type StationId,
 } from "./types"
 
+function getUrlParams() {
+  if (typeof window === "undefined") return { urlKey: null, station: null, query: "" }
+  const params = new URLSearchParams(window.location.search)
+  const paramFile = params.get("file")
+  const paramGroup = params.get("group") || "seen"
+  const paramStation = params.get("station") as StationId | null
+  const paramQuery = params.get("q")
+  return {
+    urlKey: paramFile ? `${paramGroup}:${paramFile}` : null,
+    station: paramStation && ["keep", "wait", "ai", "rule"].includes(paramStation) ? paramStation : null,
+    query: paramQuery || "",
+  }
+}
+
 export default function ScreenBoard() {
+  const initialParams = useRef(getUrlParams())
+
   const [items, setItems] = useState<ScreenItem[]>([])
   const [files, setFiles] = useState<ScreenFile[]>([])
-  const [archiveOn, setArchiveOn] = useState(false)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [offline, setOffline] = useState(false)
 
   const [city, setCity] = useState<CityPage>("杭州")
-  const [station, setStation] = useState<StationId>("keep")
+  const [station, setStation] = useState<StationId>(() => initialParams.current.station || "keep")
   const [lane, setLane] = useState<LaneId | null>(null)
-  const [query, setQuery] = useState("")
+  const [query, setQuery] = useState(() => initialParams.current.query)
   const [onlyStar, setOnlyStar] = useState(false)
   const [stars, setStars] = useState<Set<string>>(() => new Set())
   const [selectedIndex, setSelectedIndex] = useState(0)
 
   const selectedRef = useRef<string | null>(null)
+  const cityRef = useRef(city)
+  cityRef.current = city
   const loadGen = useRef(0)
-  const isInitialStationSet = useRef(false)
+  const isInitialStationSet = useRef(Boolean(initialParams.current.station))
   const deferredQuery = useDeferredValue(query)
 
-  // 1. 数据加载与定时轮询
+  // 1. 数据加载（不使用定时轮询打断对照与滚动，符合 ADR 0002）
   const load = useCallback(async (want?: string | null) => {
     const gen = ++loadGen.current
     try {
       const filesRes = await fetch("/api/screen-files")
       if (gen !== loadGen.current) return
       if (!filesRes.ok) throw new Error("files")
-      const body: { files?: ScreenFile[]; archive?: boolean } = await filesRes.json()
+      const body: { files?: ScreenFile[] } = await filesRes.json()
       const listed = Array.isArray(body.files) ? body.files : []
       setFiles(listed)
-      setArchiveOn(Boolean(body.archive))
 
       const names = new Set(listed.map((f) => fileKey(f)))
-      const params = new URLSearchParams(window.location.search)
-      const paramFile = params.get("file")
-      const paramGroup = params.get("group") || "seen"
-      const paramStation = params.get("station") as StationId | null
-      const paramQuery = params.get("q")
-      const urlKey = paramFile ? `${paramGroup}:${paramFile}` : null
+      const initialKey = initialParams.current.urlKey
 
-      let file = want !== undefined ? want : selectedRef.current || (urlKey && names.has(urlKey) ? urlKey : null)
+      let file = want !== undefined ? want : selectedRef.current || (initialKey && names.has(initialKey) ? initialKey : null)
       if (!file || !names.has(file)) {
         file = defaultScreenKey(listed)
         selectedRef.current = file
@@ -71,15 +82,6 @@ export default function ScreenBoard() {
       } else if (!selectedRef.current) {
         selectedRef.current = file
         setSelectedFile(file)
-      }
-
-      if (paramStation && ["keep", "wait", "ai", "rule"].includes(paramStation)) {
-        setStation(paramStation)
-        isInitialStationSet.current = true
-      }
-
-      if (paramQuery) {
-        setQuery(paramQuery)
       }
 
       if (!file) {
@@ -104,7 +106,7 @@ export default function ScreenBoard() {
       // 首次加载或切换文件时，按决策优先规则选定默认停驻（保留 > 待读 > AI > 规则）
       if (!isInitialStationSet.current && validItems.length > 0) {
         isInitialStationSet.current = true
-        setStation(defaultStation(validItems, "杭州"))
+        setStation(defaultStation(validItems, cityRef.current))
       }
     } catch {
       if (gen !== loadGen.current) return
@@ -115,8 +117,6 @@ export default function ScreenBoard() {
   useEffect(() => {
     setStars(loadStars())
     void load()
-    const id = window.setInterval(() => void load(), 4000)
-    return () => window.clearInterval(id)
   }, [load])
 
   // 2. 圈岗操作
@@ -133,10 +133,29 @@ export default function ScreenBoard() {
   const onSelectFile = useCallback((k: string) => {
     selectedRef.current = k
     setSelectedFile(k)
+    setLane(null)
     isInitialStationSet.current = false
     setSelectedIndex(0)
     void load(k)
   }, [load])
+
+  const onSelectCity = useCallback((c: CityPage) => {
+    setCity(c)
+    setLane(null)
+  }, [])
+
+  const onSelectStation = useCallback((s: StationId) => {
+    setStation(s)
+    setLane(null)
+  }, [])
+
+  const onSelectLane = useCallback((l: LaneId | null) => {
+    setLane(l)
+  }, [])
+
+  const onToggleOnlyStar = useCallback(() => {
+    setOnlyStar((prev) => !prev)
+  }, [])
 
   // 3. 统计计数
   const cityCounts = useMemo(() => {
@@ -225,8 +244,19 @@ export default function ScreenBoard() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
       const t = e.target as HTMLElement | null
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.tagName === "BUTTON" ||
+          t.tagName === "A" ||
+          t.isContentEditable)
+      ) {
+        return
+      }
 
       const { items: list, idx } = navRef.current
 
@@ -287,7 +317,7 @@ export default function ScreenBoard() {
         const href = it ? bossHref(it.href) : ""
         if (!href) return
         e.preventDefault()
-        window.open(href, "_blank", "noreferrer")
+        window.open(href, "_blank", "noopener,noreferrer")
       }
     }
 
@@ -303,29 +333,22 @@ export default function ScreenBoard() {
       <TopBar
         files={files}
         selectedFile={selectedFile}
-        archiveOn={archiveOn}
         offline={offline}
         onSelectFile={onSelectFile}
         city={city}
-        onSelectCity={(c) => {
-          setCity(c)
-          setLane(null)
-        }}
+        onSelectCity={onSelectCity}
         cityCounts={cityCounts}
         station={station}
-        onSelectStation={(s) => {
-          setStation(s)
-          setLane(null)
-        }}
+        onSelectStation={onSelectStation}
         stationCounts={stationCounts}
         lanes={lanes}
         lane={lane}
-        onSelectLane={setLane}
+        onSelectLane={onSelectLane}
         laneCounts={laneCounts}
         query={query}
         onQueryChange={setQuery}
         onlyStar={onlyStar}
-        onToggleOnlyStar={() => setOnlyStar((prev) => !prev)}
+        onToggleOnlyStar={onToggleOnlyStar}
         starCount={starCount}
       />
 

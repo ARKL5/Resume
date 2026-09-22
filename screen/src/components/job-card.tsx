@@ -4,9 +4,10 @@ import { jobKey, type ScreenItem } from "../types"
 
 type Props = {
   item: ScreenItem
+  index: number
   isSelected: boolean
   isStarred: boolean
-  onSelect: () => void
+  onSelect: (index: number) => void
   onToggleStar: (key: string) => void
 }
 
@@ -17,7 +18,7 @@ function activeClass(text?: string): string {
   return "act-cold"
 }
 
-function JobCard({ item, isSelected, isStarred, onSelect, onToggleStar }: Props) {
+function JobCard({ item, index, isSelected, isStarred, onSelect, onToggleStar }: Props) {
   const cardRef = useRef<HTMLDivElement>(null)
   const key = jobKey(item)
   const jobName = item.job || "（未命名岗位）"
@@ -30,14 +31,14 @@ function JobCard({ item, isSelected, isStarred, onSelect, onToggleStar }: Props)
 
   useEffect(() => {
     if (isSelected && cardRef.current) {
-      cardRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" })
+      cardRef.current.scrollIntoView({ block: "nearest" })
     }
   }, [isSelected])
 
   return (
     <div
       ref={cardRef}
-      onClick={onSelect}
+      onClick={() => onSelect(index)}
       className={`swiss-card ${isSelected ? "is-selected" : ""} ${isStarred ? "is-starred" : ""}`}
     >
       <div className="card-top-row">

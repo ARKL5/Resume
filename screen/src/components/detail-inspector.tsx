@@ -45,15 +45,16 @@ const TECH_KEYWORDS = [
   "全栈",
 ]
 
+const ESCAPED_TECH = TECH_KEYWORDS.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+const TECH_REGEX = new RegExp(`(${ESCAPED_TECH.join("|")})`, "gi")
+const TECH_SET_LOWER = new Set(TECH_KEYWORDS.map((k) => k.toLowerCase()))
+
 function highlightTechKeywords(text: string) {
   if (!text) return text
-  const escaped = TECH_KEYWORDS.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-  const regex = new RegExp(`(${escaped.join("|")})`, "gi")
-  const parts = text.split(regex)
+  const parts = text.split(TECH_REGEX)
 
   return parts.map((part, i) => {
-    const isMatched = TECH_KEYWORDS.some((k) => k.toLowerCase() === part.toLowerCase())
-    if (isMatched) {
+    if (TECH_SET_LOWER.has(part.toLowerCase())) {
       return (
         <span key={i} className="swiss-tech-token">
           {part}
@@ -73,17 +74,19 @@ function FormattedJd({ text }: { text: string }) {
         return <div key={idx} className="jd-spacer" />
       }
 
-      const isHeader =
-        /^(?:岗位职责|工作职责|工作内容|职位职责|岗位要求|任职要求|任职资格|任职条件|我们需要你|加分项)[：:]?\s*$/i.test(
+      const isMdHeader = /^#+\s+(.+)$/.exec(trimmed)
+      const isNamedHeader =
+        /^(?:岗位职责|工作职责|工作内容|职位职责|岗位要求|任职要求|任职资格|任职条件|我们需要你|加分项|职位描述|技术栈|你将获得)[：:]?\s*$/i.test(
           trimmed,
         ) ||
-        /^【(?:岗位职责|任职要求|任职资格|工作职责)】/.test(trimmed)
+        /^【(?:岗位职责|任职要求|任职资格|工作职责|职位描述|技术栈|任职条件)】/.test(trimmed)
 
-      if (isHeader) {
+      if (isMdHeader || isNamedHeader) {
+        const headerTitle = isMdHeader ? isMdHeader[1] : trimmed
         return (
           <div key={idx} className="swiss-jd-header">
             <span className="header-index">§</span>
-            <span className="header-title">{trimmed}</span>
+            <span className="header-title">{headerTitle}</span>
           </div>
         )
       }
@@ -130,10 +133,15 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
   const onCopySummary = () => {
     const bench = reason.modular?.benchmark || reason.summarySnippet || ""
     const text = `[${company}] ${jobName} | 薪资: ${salary || "面议"} | 地点: ${area || "未知"} | 对标: ${bench}`
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      })
+      .catch(() => {
+        /* ignore or fallback */
+      })
   }
 
   return (
@@ -152,7 +160,7 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
                 <a
                   href={href}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   className="swiss-job-title"
                   title="在 Boss 直聘打开原始页面 (Enter)"
                 >
@@ -183,7 +191,7 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
               </button>
 
               {href ? (
-                <a href={href} target="_blank" rel="noreferrer" className="swiss-btn is-primary">
+                <a href={href} target="_blank" rel="noopener noreferrer" className="swiss-btn is-primary">
                   <span>在 BOSS 打开</span>
                   <span className="key-tag on-dark">Enter</span>
                 </a>

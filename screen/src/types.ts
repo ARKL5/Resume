@@ -36,11 +36,6 @@ export function defaultScreenKey(files: ScreenFile[]): string | null {
   return seen ? fileKey(seen) : null
 }
 
-export function needsEmptySeenOption(archive: boolean, files: ScreenFile[]): boolean {
-  if (!archive) return false
-  return !files.some((file) => file.group !== "archive")
-}
-
 export type CityPage = "杭州" | "上海" | "其它"
 
 export type StationId = "rule" | "ai" | "wait" | "keep"

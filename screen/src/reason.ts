@@ -56,7 +56,7 @@ export function parseReason(raw: string): ParsedReason {
   }
 
   let note: string | null = null
-  const noteMatch = remaining.match(/[；;]\s*(本轮详情上限|将点详情|其它城不点.*)$/)
+  const noteMatch = remaining.match(/[；;]\s*(本轮详情上限|将点详情|工作地「.+?」，本轮不点详情|其它城不点.*)$/)
   if (noteMatch) {
     note = noteMatch[1].trim()
     remaining = remaining.slice(0, noteMatch.index).trim()
@@ -95,13 +95,14 @@ export function parseReason(raw: string): ParsedReason {
   }
 
   // 2. 尝试兼容早期非标准括号的旧版保留评语
-  if (!modular && phase === "JD" && (remaining.includes("与候选人") || remaining.includes("风险："))) {
+  if (!modular && phase === "JD" && (remaining.includes("候选人") || remaining.includes("匹配") || remaining.includes("风险"))) {
     let riskPart = ""
     let rest = remaining
-    const riskIdx = remaining.indexOf("风险：") !== -1 ? remaining.indexOf("风险：") : remaining.indexOf("风险:")
-    if (riskIdx !== -1) {
-      riskPart = remaining.slice(riskIdx + 3).trim()
-      rest = remaining.slice(0, riskIdx).trim()
+
+    const riskMatch = remaining.match(/((?:主要)?风险(?:是|为|在|：|:)\s*.*)$/)
+    if (riskMatch && riskMatch.index !== undefined) {
+      riskPart = riskMatch[1].replace(/^(?:主要)?风险(?:是|为|在|：|:)\s*/, "").trim()
+      rest = remaining.slice(0, riskMatch.index).trim()
     }
 
     const sentences = rest.split(/[。]/).map((s) => s.trim()).filter(Boolean)
@@ -110,9 +111,9 @@ export function parseReason(raw: string): ParsedReason {
     const dutySentences: string[] = []
 
     for (const s of sentences) {
-      if (s.includes("与候选人") || s.includes("匹配") || s.includes("契合")) {
+      if (s.includes("候选人") || s.includes("匹配") || s.includes("契合") || s.includes("零售客服") || s.includes("RAG")) {
         benchPart += (benchPart ? "。" : "") + s
-      } else if (s.startsWith("公司") || s.includes("融资") || s.includes("0-20人") || s.includes("规模")) {
+      } else if (s.startsWith("公司") || s.includes("融资") || s.includes("人、") || s.includes("规模") || s.includes("互联网")) {
         compPart += (compPart ? "。" : "") + s
       } else {
         dutySentences.push(s)
@@ -121,8 +122,8 @@ export function parseReason(raw: string): ParsedReason {
 
     modular = {
       dutyAndTech: dutySentences.join("。") || rest,
-      benchmark: benchPart,
-      companyBg: compPart,
+      benchmark: benchPart || "与候选人技术栈契合",
+      companyBg: compPart || "无详细背景信息",
       risk: riskPart || "无明显硬伤",
     }
   }

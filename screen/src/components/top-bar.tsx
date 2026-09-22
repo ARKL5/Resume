@@ -12,7 +12,6 @@ import {
 type Props = {
   files: ScreenFile[]
   selectedFile: string | null
-  archiveOn: boolean
   offline: boolean
   onSelectFile: (fileKey: string) => void
   city: CityPage

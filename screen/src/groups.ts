@@ -41,11 +41,11 @@ export function reasonGroup(it: ScreenItem): string {
   const colon = body.indexOf("：")
   if (colon > 0 && colon <= 12) {
     const head = body.slice(0, colon)
-    if (head === "公司名含" || head === "岗位名含") {
+    if (head === "公司名含" || head === "岗位名含" || head === "招聘者含") {
       const token = body.slice(colon + 1).split(/[，、\s]/)[0] || ""
       return token ? `${head}：${token}` : head
     }
-    if (head === "HR未近3天活跃" || head === "招聘者含" || head.endsWith("黑名单命中")) return head
+    if (head === "HR未近3天活跃" || head.endsWith("黑名单命中")) return head
   }
   return body.length > 36 ? body.slice(0, 36) : body
 }
