@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import signal
 import threading
 import urllib.parse
@@ -127,6 +128,7 @@ class Session:
         self.seen: dict[str, dict] = {}
         self.detail_reserved = 0
         self.empty_detail_streak = 0
+        self.details_since_last_break = 0
         self.stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         page.on("response", self._on_response)
 
@@ -332,6 +334,13 @@ class Session:
         return _parallel("标题AI", cards, one, self.stop)
 
     def _details(self, keyword: str, cards: list[Card]) -> None:
+        if not cards:
+            return
+        try:
+            self.page.evaluate("window.scrollTo({ top: 0, behavior: 'smooth' });")
+            self._sleep(random.uniform(1.0, 1.8))
+        except Exception:
+            pass
         futures = []
         with ThreadPoolExecutor(max_workers=AI_PARALLELISM) as pool:
             for card in cards:
@@ -348,7 +357,7 @@ class Session:
                     continue
                 try:
                     with self.page.expect_response(_is_detail, timeout=15_000) as waited:
-                        target.click()
+                        self._human_click(target)
                     body = waited.value.text()
                 except Exception:
                     if self._halt("Boss 点详情时弹出验证。"):
@@ -384,6 +393,19 @@ class Session:
                     future.result()
                 except Exception as exc:
                     log.warning("详情AI失败: %s", exc)
+
+    def _human_click(self, target) -> None:
+        try:
+            box = target.bounding_box()
+            if box and box.get("width", 0) > 0 and box.get("height", 0) > 0:
+                tx = box["x"] + random.uniform(box["width"] * 0.25, box["width"] * 0.75)
+                ty = box["y"] + random.uniform(box["height"] * 0.25, box["height"] * 0.75)
+                self.page.mouse.move(tx, ty, steps=random.randint(6, 12))
+                target.hover(timeout=2000)
+                self._sleep(random.uniform(0.3, 0.7))
+        except Exception:
+            pass
+        target.click()
 
     def _job_from_detail(self, card: Card, body: str) -> dict | None:
         parsed = parse_detail(body)
@@ -470,6 +492,14 @@ class Session:
         )
 
     def _pause_between_jobs(self) -> None:
+        self.details_since_last_break += 1
+        if self.details_since_last_break >= random.randint(6, 9):
+            rest = random.randint(60, 100)
+            log.info("拟真停歇：已连续查看 %s 份岗位，模拟休息 %s 秒...", self.details_since_last_break, rest)
+            self.details_since_last_break = 0
+            self._sleep(rest)
+            return
+
         seconds = detail_gap_seconds(self.settings.wait_time)
         log.info("岗位间停顿 %s 秒", seconds)
         self._sleep(seconds)
@@ -603,16 +633,27 @@ class Session:
         if hit is not None:
             return hit
         try:
-            self.page.evaluate("window.scrollTo(0, 0);")
-            self._sleep(1)
-            for _ in range(80):
+            for _ in range(30):
                 if self._halt("Boss 找卡片时弹出人机验证或登录。"):
                     return None
                 hit = self._card_locator(encrypt_id)
                 if hit is not None:
                     return hit
-                self.page.evaluate("() => window.scrollBy(0, Math.floor(window.innerHeight * 0.9))")
-                self._sleep(1)
+                delta = random.randint(350, 600)
+                self.page.mouse.wheel(0, delta)
+                self._sleep(random.uniform(0.4, 0.7))
+
+            self.page.evaluate("window.scrollTo({ top: 0, behavior: 'smooth' });")
+            self._sleep(random.uniform(1.0, 1.5))
+            for _ in range(30):
+                if self._halt("Boss 找卡片时弹出人机验证或登录。"):
+                    return None
+                hit = self._card_locator(encrypt_id)
+                if hit is not None:
+                    return hit
+                delta = random.randint(350, 600)
+                self.page.mouse.wheel(0, delta)
+                self._sleep(random.uniform(0.4, 0.7))
         except Exception as exc:
             log.debug("滚找卡片失败: %s", exc)
         return None
