@@ -40,6 +40,8 @@ function JobCard({ item, isSelected, isStarred, onSelect, onToggleStar }: Props)
       onClick={onSelect}
       className={`job-card ${isSelected ? "is-selected" : ""} ${isStarred ? "is-starred" : ""}`}
     >
+      <div className="card-selection-notch" />
+
       <div className="card-left">
         <button
           type="button"
@@ -51,7 +53,7 @@ function JobCard({ item, isSelected, isStarred, onSelect, onToggleStar }: Props)
           title={isStarred ? "取消圈岗 (s)" : "圈岗 (s)"}
           aria-label={isStarred ? "取消圈岗" : "圈岗"}
         >
-          {isStarred ? "●" : "○"}
+          {isStarred ? "★" : "☆"}
         </button>
       </div>
 
@@ -70,6 +72,7 @@ function JobCard({ item, isSelected, isStarred, onSelect, onToggleStar }: Props)
           {area ? <span className="card-area">{area}</span> : null}
           {activeText ? (
             <span className={`card-active-pill ${actCls}`} title={`HR活跃度：${activeText}`}>
+              <span className="status-dot" />
               {activeText}
             </span>
           ) : null}

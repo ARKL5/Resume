@@ -56,7 +56,7 @@ function TopBar({
   return (
     <header className="topbar">
       <div className="topbar-row-main">
-        {/* 左区：文件选择与离线状态 */}
+        {/* 左区：文件选择与状态 */}
         <div className="topbar-file-section">
           <div className="file-select-wrapper">
             <span className="file-icon">📁</span>
@@ -115,7 +115,7 @@ function TopBar({
                   onClick={() => onSelectStation(s.id)}
                   title={`快捷键: ${s.keyHint}`}
                 >
-                  <span className="key-hint">{s.keyHint}</span>
+                  <kbd className="key-kbd">{s.keyHint}</kbd>
                   <span className="station-name">{s.title}</span>
                   <span className="count-pill">{count}</span>
                 </button>
@@ -132,7 +132,7 @@ function TopBar({
             onClick={onToggleOnlyStar}
             title="仅看圈岗岗位"
           >
-            <span className="star-icon">{onlyStar ? "●" : "○"}</span>
+            <span className="star-icon">{onlyStar ? "★" : "☆"}</span>
             <span>圈岗</span>
             <span className="count-badge">{starCount}</span>
           </button>
@@ -151,6 +151,7 @@ function TopBar({
                 type="button"
                 className="search-clear-btn"
                 onClick={() => onQueryChange("")}
+                title="清空"
               >
                 ✕
               </button>
@@ -159,10 +160,10 @@ function TopBar({
         </div>
       </div>
 
-      {/* 二级分类切片栏（当当前停驻有分类时展示，如 AI 或 待读） */}
+      {/* 二级分类切片栏 */}
       {lanes.length > 0 ? (
         <div className="topbar-subrow-lanes">
-          <span className="lanes-label">二级分类：</span>
+          <span className="lanes-label">二级切片：</span>
           <div className="lanes-group">
             <button
               type="button"
