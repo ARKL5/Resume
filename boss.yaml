@@ -19,7 +19,7 @@ stage: []
 waitTime: 18
 keywordGapSeconds: 60
 sendImgResume: false
-screenResultsDir: screen-results
+screenResultsDir: screen-experiments
 detailLimit: 0
 onRisk: stop
 

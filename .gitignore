@@ -7,10 +7,9 @@ __pycache__/
 screen/node_modules/
 screen/dist/
 resume/output/
-boss/browser-data/
-boss/build/
-boss/.gradle/
-boss/target/
-boss/screen-*.jsonl
-boss/screen-results/
-boss/opened-chats.jsonl
+/browser-data/
+/screen-results/
+/screen-experiments/
+/opened-chats.jsonl
+/resume.jpg
+/.boss-screen.lock
