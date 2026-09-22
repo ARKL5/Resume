@@ -1,16 +1,16 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
-import { CITY_PAGES, STATIONS, lanesFor } from "./constants"
-import { pageSizeForViewport } from "./page-size"
-import { loadStars, saveStars } from "./stars"
+import { lanesFor } from "./constants"
 import { sortByReasonGroup } from "./groups"
-import StationTable from "./station-table"
+import { loadStars, saveStars } from "./stars"
+import TopBar from "./components/top-bar"
+import MasterList from "./components/master-list"
+import DetailInspector from "./components/detail-inspector"
 import {
   bossHref,
   cityOf,
   defaultScreenKey,
+  defaultStation,
   fileKey,
-  fileLabel,
-  needsEmptySeenOption,
   isPlaced,
   jobKey,
   laneOf,
@@ -22,36 +22,27 @@ import {
   type StationId,
 } from "./types"
 
-type NavSnap = {
-  slice: ScreenItem[]
-  page: number
-  totalPages: number
-  hi: number
-}
-
 export default function ScreenBoard() {
   const [items, setItems] = useState<ScreenItem[]>([])
   const [files, setFiles] = useState<ScreenFile[]>([])
   const [archiveOn, setArchiveOn] = useState(false)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
-  const [loadedFile, setLoadedFile] = useState("")
-  const selectedRef = useRef<string | null>(null)
-  const loadGen = useRef(0)
+  const [offline, setOffline] = useState(false)
+
   const [city, setCity] = useState<CityPage>("杭州")
-  const [station, setStation] = useState<StationId>("rule")
+  const [station, setStation] = useState<StationId>("keep")
   const [lane, setLane] = useState<LaneId | null>(null)
   const [query, setQuery] = useState("")
   const [onlyStar, setOnlyStar] = useState(false)
   const [stars, setStars] = useState<Set<string>>(() => new Set())
-  const [offline, setOffline] = useState(false)
-  const [page, setPage] = useState(1)
-  const [hi, setHi] = useState(0)
-  const [jdOpenKey, setJdOpenKey] = useState<string | null>(null)
-  const [pageSize, setPageSize] = useState(24)
-  const deferredQuery = useDeferredValue(query)
-  const stale = query !== deferredQuery
-  const navRef = useRef<NavSnap>({ slice: [], page: 1, totalPages: 1, hi: 0 })
+  const [selectedIndex, setSelectedIndex] = useState(0)
 
+  const selectedRef = useRef<string | null>(null)
+  const loadGen = useRef(0)
+  const isInitialStationSet = useRef(false)
+  const deferredQuery = useDeferredValue(query)
+
+  // 1. 数据加载与定时轮询
   const load = useCallback(async (want?: string | null) => {
     const gen = ++loadGen.current
     try {
@@ -62,21 +53,41 @@ export default function ScreenBoard() {
       const listed = Array.isArray(body.files) ? body.files : []
       setFiles(listed)
       setArchiveOn(Boolean(body.archive))
+
       const names = new Set(listed.map((f) => fileKey(f)))
-      let file = want !== undefined ? want : selectedRef.current
+      const params = new URLSearchParams(window.location.search)
+      const paramFile = params.get("file")
+      const paramGroup = params.get("group") || "seen"
+      const paramStation = params.get("station") as StationId | null
+      const paramQuery = params.get("q")
+      const urlKey = paramFile ? `${paramGroup}:${paramFile}` : null
+
+      let file = want !== undefined ? want : selectedRef.current || (urlKey && names.has(urlKey) ? urlKey : null)
       if (!file || !names.has(file)) {
         file = defaultScreenKey(listed)
         selectedRef.current = file
         setSelectedFile(file)
-        setPage(1)
-        setHi(0)
+        setSelectedIndex(0)
+      } else if (!selectedRef.current) {
+        selectedRef.current = file
+        setSelectedFile(file)
       }
+
+      if (paramStation && ["keep", "wait", "ai", "rule"].includes(paramStation)) {
+        setStation(paramStation)
+        isInitialStationSet.current = true
+      }
+
+      if (paramQuery) {
+        setQuery(paramQuery)
+      }
+
       if (!file) {
         setItems([])
-        setLoadedFile("")
         setOffline(false)
         return
       }
+
       const split = file.indexOf(":")
       const group = split >= 0 ? file.slice(0, split) : "seen"
       const name = split >= 0 ? file.slice(split + 1) : file
@@ -85,10 +96,16 @@ export default function ScreenBoard() {
       )
       if (gen !== loadGen.current) return
       if (!resultsRes.ok) throw new Error("results")
-      const data: { items?: ScreenItem[]; file?: string } = await resultsRes.json()
-      setItems((Array.isArray(data.items) ? data.items : []).filter(isPlaced))
-      setLoadedFile(typeof data.file === "string" ? data.file : file)
+      const data: { items?: ScreenItem[] } = await resultsRes.json()
+      const validItems = (Array.isArray(data.items) ? data.items : []).filter(isPlaced)
+      setItems(validItems)
       setOffline(false)
+
+      // 首次加载或切换文件时，按决策优先规则选定默认停驻（保留 > 待读 > AI > 规则）
+      if (!isInitialStationSet.current && validItems.length > 0) {
+        isInitialStationSet.current = true
+        setStation(defaultStation(validItems, "杭州"))
+      }
     } catch {
       if (gen !== loadGen.current) return
       setOffline(true)
@@ -102,6 +119,7 @@ export default function ScreenBoard() {
     return () => window.clearInterval(id)
   }, [load])
 
+  // 2. 圈岗操作
   const onToggleStar = useCallback((key: string) => {
     setStars((prev) => {
       const next = new Set(prev)
@@ -112,6 +130,15 @@ export default function ScreenBoard() {
     })
   }, [])
 
+  const onSelectFile = useCallback((k: string) => {
+    selectedRef.current = k
+    setSelectedFile(k)
+    isInitialStationSet.current = false
+    setSelectedIndex(0)
+    void load(k)
+  }, [load])
+
+  // 3. 统计计数
   const cityCounts = useMemo(() => {
     const m: Record<CityPage, number> = { 杭州: 0, 上海: 0, 其它: 0 }
     for (const it of items) {
@@ -125,7 +152,7 @@ export default function ScreenBoard() {
     const q = deferredQuery.trim().toLowerCase()
     const out: ScreenItem[] = []
     for (const it of items) {
-      if (cityOf(it) !== city || !stationOf(it)) continue
+      if (cityOf(it) !== city) continue
       const k = jobKey(it)
       if (onlyStar && !stars.has(k)) continue
       if (q) {
@@ -141,7 +168,7 @@ export default function ScreenBoard() {
   }, [items, city, onlyStar, stars, deferredQuery])
 
   const stationCounts = useMemo(() => {
-    const m: Record<StationId, number> = { rule: 0, ai: 0, wait: 0, keep: 0 }
+    const m: Record<StationId, number> = { keep: 0, wait: 0, ai: 0, rule: 0 }
     for (const it of inCity) {
       const s = stationOf(it)
       if (s) m[s] += 1
@@ -156,53 +183,12 @@ export default function ScreenBoard() {
     for (const it of inCity) {
       if (stationOf(it) !== station) continue
       const l = laneOf(it)
-      if (!l) continue
-      m[l] = (m[l] ?? 0) + 1
+      if (l) m[l] = (m[l] ?? 0) + 1
     }
     return m
   }, [inCity, station])
 
-  const selectedLane = lanes.length === 0 ? null : lane && lanes.some((d) => d.id === lane) ? lane : null
-  const needClass = lanes.length > 0 && selectedLane == null
-
-  const ranked = useMemo(() => {
-    if (needClass) return []
-    const ofStation: ScreenItem[] = []
-    for (const it of inCity) {
-      if (stationOf(it) !== station) continue
-      if (selectedLane && laneOf(it) !== selectedLane) continue
-      ofStation.push(it)
-    }
-    if (station === "rule") return sortByReasonGroup(ofStation)
-    return ofStation
-  }, [inCity, station, selectedLane, needClass])
-
-  useEffect(() => {
-    const measure = () => setPageSize(pageSizeForViewport(window.innerWidth, window.innerHeight))
-    measure()
-    window.addEventListener("resize", measure)
-    return () => window.removeEventListener("resize", measure)
-  }, [])
-
-  const totalPages = Math.max(1, Math.ceil(ranked.length / pageSize))
-  const safePage = Math.min(page, totalPages)
-  const start = (safePage - 1) * pageSize
-  const slice = useMemo(() => ranked.slice(start, start + pageSize), [ranked, start, pageSize])
-  const safeHi = slice.length === 0 ? 0 : Math.min(hi, slice.length - 1)
-
-  navRef.current = { slice, page: safePage, totalPages, hi: safeHi }
-
-  useEffect(() => {
-    setPage(1)
-    setHi(0)
-    setJdOpenKey(null)
-  }, [city, station, deferredQuery, onlyStar, selectedLane])
-
-  useEffect(() => {
-    setPage((p) => Math.min(p, totalPages))
-  }, [totalPages])
-
-  const starN = useMemo(() => {
+  const starCount = useMemo(() => {
     let n = 0
     for (const it of items) {
       if (cityOf(it) === city && stars.has(jobKey(it))) n += 1
@@ -210,232 +196,155 @@ export default function ScreenBoard() {
     return n
   }, [items, city, stars])
 
+  // 4. 当前切片展示的最终岗位列表
+  const displayItems = useMemo(() => {
+    const ofStation: ScreenItem[] = []
+    for (const it of inCity) {
+      if (stationOf(it) !== station) continue
+      if (lane && laneOf(it) !== lane) continue
+      ofStation.push(it)
+    }
+    if (station === "rule") {
+      return sortByReasonGroup(ofStation)
+    }
+    return ofStation
+  }, [inCity, station, lane])
+
+  // 切换维度时重置选中的卡片索引
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
+    setSelectedIndex(0)
+  }, [city, station, lane, deferredQuery, onlyStar])
+
+  // 安全焦点索引
+  const safeIndex = displayItems.length === 0 ? 0 : Math.min(selectedIndex, displayItems.length - 1)
+  const currentItem = displayItems[safeIndex] ?? null
+
+  // 5. 键盘快捷键监听
+  const navRef = useRef({ items: displayItems, idx: safeIndex })
+  navRef.current = { items: displayItems, idx: safeIndex }
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return
-      const snap = navRef.current
-      const key = e.key
-      if (key === "j" || key === "ArrowDown") {
+
+      const { items: list, idx } = navRef.current
+
+      if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault()
-        if (snap.hi + 1 < snap.slice.length) setHi(snap.hi + 1)
-        else if (snap.page < snap.totalPages) {
-          setPage(snap.page + 1)
-          setHi(0)
+        if (idx + 1 < list.length) {
+          setSelectedIndex(idx + 1)
         }
         return
       }
-      if (key === "k" || key === "ArrowUp") {
+
+      if (e.key === "k" || e.key === "ArrowUp") {
         e.preventDefault()
-        if (snap.hi > 0) setHi(snap.hi - 1)
-        else if (snap.page > 1) {
-          setPage(snap.page - 1)
-          setHi(Number.MAX_SAFE_INTEGER)
+        if (idx > 0) {
+          setSelectedIndex(idx - 1)
         }
         return
       }
-      if (key === "n" || key === "ArrowRight") {
+
+      // 快捷键 1:保留, 2:待读, 3:AI, 4:规则
+      if (e.key === "1") {
         e.preventDefault()
-        if (snap.page < snap.totalPages) {
-          setPage(snap.page + 1)
-          setHi(0)
-        }
+        setStation("keep")
+        setLane(null)
         return
       }
-      if (key === "p" || key === "ArrowLeft") {
+      if (e.key === "2") {
         e.preventDefault()
-        if (snap.page > 1) {
-          setPage(snap.page - 1)
-          setHi(0)
-        }
+        setStation("wait")
+        setLane(null)
         return
       }
-      if (key === "1" || key === "2" || key === "3" || key === "4") {
-        const next = STATIONS[Number(key) - 1]
-        if (next) {
-          setStation(next.id)
-          setLane(null)
-        }
+      if (e.key === "3") {
+        e.preventDefault()
+        setStation("ai")
+        setLane(null)
         return
       }
-      if (key === "s" || key === " ") {
-        const it = snap.slice[snap.hi]
+      if (e.key === "4") {
+        e.preventDefault()
+        setStation("rule")
+        setLane(null)
+        return
+      }
+
+      // s 或 Space 圈岗
+      if (e.key === "s" || e.key === " ") {
+        const it = list[idx]
         if (!it) return
         e.preventDefault()
         onToggleStar(jobKey(it))
         return
       }
-      if (key === "d") {
-        const it = snap.slice[snap.hi]
-        if (!it) return
-        const hasJd = Boolean(it.hasJd || (it.jd && String(it.jd).trim()))
-        if (!hasJd) return
-        e.preventDefault()
-        const k = jobKey(it)
-        setJdOpenKey((cur) => (cur === k ? null : k))
-        return
-      }
-      if (key === "Enter") {
-        const it = snap.slice[snap.hi]
+
+      // Enter 或 o 直达 Boss 链接
+      if (e.key === "Enter" || e.key === "o") {
+        const it = list[idx]
         const href = it ? bossHref(it.href) : ""
         if (!href) return
         e.preventDefault()
         window.open(href, "_blank", "noreferrer")
       }
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
   }, [onToggleStar])
 
-
+  const stationTitle = station === "keep" ? "保留" : station === "wait" ? "待读" : station === "ai" ? "AI" : "规则"
+  const activeLaneObj = lanes.find((l) => l.id === lane)
 
   return (
-    <div className="page">
-      <div className="toolbar">
-        <div className="tabs">
-          {CITY_PAGES.map((p) => (
-            <button
-              key={p}
-              type="button"
-              className={city === p ? "tab city is-on" : "tab city"}
-              onClick={() => setCity(p)}
-            >
-              {p}
-              <span className="n">{cityCounts[p]}</span>
-            </button>
-          ))}
-        </div>
-        <div className="tabs">
-          {STATIONS.map((def) => (
-            <button
-              key={def.id}
-              type="button"
-              className={station === def.id ? `tab ${def.tone} is-on` : `tab ${def.tone}`}
-              onClick={() => {
-                setStation(def.id)
-                setLane(null)
-              }}
-            >
-              {def.title}
-              <span className="n">{stationCounts[def.id]}</span>
-            </button>
-          ))}
-        </div>
-        <span className={offline ? "status is-off" : "status"}>
-          <span className="n">{offline ? "读不到结果" : items.length}</span>
-          {loadedFile ? <span className="file-name"> {loadedFile}</span> : null}
-        </span>
-      </div>
-      {lanes.length > 0 ? (
-        <div className="class-row">
-          {lanes.map((def) => (
-            <button
-              key={def.id}
-              type="button"
-              className={
-                selectedLane === def.id
-                  ? `tab ${station === "ai" ? "s2" : "s3"} is-on`
-                  : `tab ${station === "ai" ? "s2" : "s3"}`
-              }
-              data-lane={def.id}
-              onClick={() => setLane(def.id)}
-            >
-              {def.title}
-              <span className="n">{laneCounts[def.id] ?? 0}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
+    <div className="workbench-app">
+      <TopBar
+        files={files}
+        selectedFile={selectedFile}
+        archiveOn={archiveOn}
+        offline={offline}
+        onSelectFile={onSelectFile}
+        city={city}
+        onSelectCity={(c) => {
+          setCity(c)
+          setLane(null)
+        }}
+        cityCounts={cityCounts}
+        station={station}
+        onSelectStation={(s) => {
+          setStation(s)
+          setLane(null)
+        }}
+        stationCounts={stationCounts}
+        lanes={lanes}
+        lane={lane}
+        onSelectLane={setLane}
+        laneCounts={laneCounts}
+        query={query}
+        onQueryChange={setQuery}
+        onlyStar={onlyStar}
+        onToggleOnlyStar={() => setOnlyStar((prev) => !prev)}
+        starCount={starCount}
+      />
 
-      <div className="search-row">
-        <div className="file-pick">
-          <select
-            value={selectedFile ?? ""}
-            disabled={!archiveOn && files.length === 0}
-            onChange={(e) => {
-              const v = e.target.value
-              if (!v) return
-              selectedRef.current = v
-              setSelectedFile(v)
-              setPage(1)
-              setHi(0)
-              void load(v)
-            }}
-          >
-            {!archiveOn && files.length === 0 ? (
-              <option value="">没有筛选结果</option>
-            ) : archiveOn ? (
-              <>
-                <optgroup label="已筛">
-                  {needsEmptySeenOption(archiveOn, files) ? (
-                    <option value="">已筛目录是空的</option>
-                  ) : null}
-                  {files
-                    .filter((f) => f.group !== "archive")
-                    .map((f) => (
-                      <option key={fileKey(f)} value={fileKey(f)}>
-                        {fileLabel(f)}
-                      </option>
-                    ))}
-                </optgroup>
-                <optgroup label="实验目录">
-                  {files
-                    .filter((f) => f.group === "archive")
-                    .map((f) => (
-                      <option key={fileKey(f)} value={fileKey(f)}>
-                        {fileLabel(f)}
-                      </option>
-                    ))}
-                </optgroup>
-              </>
-            ) : (
-              files.map((f) => (
-                <option key={fileKey(f)} value={fileKey(f)}>
-                  {fileLabel(f)}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-        <div className="search">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜公司 / 岗位 / 停因 / 搜索词"
-          />
-        </div>
-        <button
-          type="button"
-          className={onlyStar ? "text-btn is-on" : "text-btn"}
-          onClick={() => setOnlyStar((v) => !v)}
-        >
-          已圈 {starN}
-        </button>
-        <button type="button" className="text-btn" onClick={() => void load()}>
-          刷新
-        </button>
-      </div>
+      <div className="workbench-body">
+        <MasterList
+          items={displayItems}
+          selectedIndex={safeIndex}
+          stars={stars}
+          onSelect={setSelectedIndex}
+          onToggleStar={onToggleStar}
+        />
 
-      <div className={stale ? "stale" : undefined}>
-        {needClass ? (
-          <p className="empty">先选分类</p>
-        ) : (
-          <StationTable
-            items={ranked}
-            page={safePage}
-            pageSize={pageSize}
-            onPage={(p) => {
-              setPage(p)
-              setHi(0)
-            }}
-            hi={safeHi}
-            onHi={setHi}
-            starred={stars}
-            jdOpenKey={jdOpenKey}
-            onToggleStar={onToggleStar}
-            groupByReason={station === "rule"}
-          />
-        )}
+        <DetailInspector
+          item={currentItem}
+          isStarred={currentItem ? stars.has(jobKey(currentItem)) : false}
+          onToggleStar={onToggleStar}
+          stationTitle={stationTitle}
+          laneTitle={activeLaneObj?.title}
+        />
       </div>
     </div>
   )

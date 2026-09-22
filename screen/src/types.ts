@@ -13,6 +13,7 @@ export type ScreenItem = {
   stage?: string
   reason?: string
   cityPage?: string
+  recruiter?: string
 }
 
 export type ScreenFile = {
@@ -43,6 +44,21 @@ export function needsEmptySeenOption(archive: boolean, files: ScreenFile[]): boo
 export type CityPage = "杭州" | "上海" | "其它"
 
 export type StationId = "rule" | "ai" | "wait" | "keep"
+
+export function defaultStation(items: ScreenItem[], city: CityPage): StationId {
+  let hasWait = false
+  let hasAi = false
+  for (const it of items) {
+    if (cityOf(it) !== city) continue
+    const s = stationOf(it)
+    if (s === "keep") return "keep"
+    if (s === "wait") hasWait = true
+    else if (s === "ai") hasAi = true
+  }
+  if (hasWait) return "wait"
+  if (hasAi) return "ai"
+  return "rule"
+}
 
 /** AI / 待读里的分类。规则和保留没有。其它城走城市分页。 */
 export type LaneId =
