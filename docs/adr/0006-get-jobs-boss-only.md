@@ -1,9 +1,7 @@
-# get_jobs 只留本机 Boss 筛选与代聊
+# 只做 Boss 的筛选和代聊
 
-本仓只要 Boss 筛选和同一套代聊。原配置 UI（`front/`、`:6866`）已删除，Java 目录已按 ADR 0009 删除。运行配置在仓库根 `boss.yaml`，对照页在 `screen/`。不连 sqlite。智联 / 51 / 猎聘接线拆除（Playwright 只开 Boss）。微信推送和投递分析不要。搜索附加条件、黑名单、已筛跳过、已开聊记录要能做。代聊先留接口：对当场点名的 encryptId 点立即沟通并发送招呼语（文案用 `boss.yaml` 的 `greeting`，可换）；图简历能力保留、默认不传。开聊须本人明确说；对照页和 `SCREEN_ONLY` 都不开聊。不自动回复 HR。不把已开聊当成第五处停驻。不再跟踪上游 fork，也不再单独维护仓外 get_jobs。
+本仓只跑 Boss。不接其它招聘站，不连 sqlite，不做推送和投递分析，不自动回复。已开聊不是停驻。开聊只在本人当场点名时发生。不再跟上游多渠道项目对齐。
 
-**Code**: `src/boss_screen/chat.py`、`src/boss_screen/run.py`、`screen/`
+**Code**: `src/boss_screen/`、`screen/`
 
-**Considered Options**: 留下瘦配置页；对照页兼启停与改搜索词；只摘其它渠道 UI、启动仍开四站；把当前筛选没用到的搜索筛选 / 黑名单 / 代聊路径一并删掉。
-
-**Consequences**: 不再跟上游 `front/` 与多渠道 worker 对齐。当前 sqlite 已删，登录靠 `browser-data`。
+**Considered Options**: 留下配置页；对照页兼启停和改搜词；启动时仍打开多站。

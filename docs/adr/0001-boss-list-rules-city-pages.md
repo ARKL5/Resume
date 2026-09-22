@@ -1,7 +1,7 @@
-# Boss 筛选：列表上的规则、城市分页、标题/JD 分步 AI
+# 列表上筛选，城市只分页
 
-搜索杭州和上海，每个词把列表滚到底。搜索条件含公司行业（互联网、人工智能、电子商务；yaml `codes.industry`）。结构化规则只做列表前置；城市只分页（工作地文案含杭州或上海，无区县表）。列表标签给标题 AI，岗位标题仍是主证据。招聘者头衔含猎头/招聘顾问/驻场或招聘者黑名单 → 规则淘汰（列表有头衔则点详情前，详情再跑一遍）。主键和点卡用 encryptId。标题 AI 三态：实现实习可点、产品经理/不确定待读、其余淘汰。过标题不等于点 JD；点详情次数由 `boss.yaml` 的 `detailLimit` 限制（0 不点，负数不设上限）。筛选结果在 `screenResultsDir`，一搜词一份 jsonl，文件名 `{同一次筛选的时间}_实习_搜词.jsonl`（一次筛选多个搜词前缀相同）；杭州/上海同一词续写，不覆盖历史。对照页只读切换。运行项（搜词、代码表、字面规则、提示词、AI 地址、`onRisk`）都在仓库根 `boss.yaml`。进了详情不再跑标题字面，例外见 ADR 0004。其它城市不点详情。词间和城间冷却见 yaml `keywordGapSeconds`；wait_time 下限 18 秒。人机验证或风控页按 `onRisk`：`stop` 结束本轮，`wait` 暂停等人。停驻与 jsonl 字段见 ADR 0005。
+字面、黑名单和招聘者头衔只在列表上判断。城市只分页，分页规则在 `classify_city`：不建区县表，也不因城市淘汰。标题 AI 三态；判成可点也不等于点开详情，其它城不点。每个搜词滚到底。同一轮共用一个时间戳，一搜词一份 jsonl，只追加。主键是 encryptId。详情里不再跑标题字面。HR 活跃见 ADR 0004，jsonl 见 ADR 0005。搜词和筛选条件改 `boss.yaml`。
 
-**Code**: `src/boss_screen/`、`screen/`、`boss.yaml`
+**Code**: `src/boss_screen/rules.py`、`src/boss_screen/run.py`
 
-**Considered Options**: 详情后再做 HR/城市规则；每词 25/50 次详情上限；列表只滚前 50。
+**Considered Options**: 进详情后再用城市或标题字面淘汰；列表只滚前 50；在代码里写死详情次数。

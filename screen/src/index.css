@@ -402,14 +402,11 @@ a {
 }
 
 .reason {
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
   font-family: var(--serif);
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--cmt);
+  word-break: break-word;
 }
 
 .reason .kw {
