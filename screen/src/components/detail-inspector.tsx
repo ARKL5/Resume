@@ -17,7 +17,7 @@ function activeClass(text?: string): string {
   return "act-cold"
 }
 
-// 关键词高亮渲染器
+// 瑞士风格关键词高亮识别器
 const TECH_KEYWORDS = [
   "retail-bench",
   "rag-backend",
@@ -55,9 +55,9 @@ function highlightTechKeywords(text: string) {
     const isMatched = TECH_KEYWORDS.some((k) => k.toLowerCase() === part.toLowerCase())
     if (isMatched) {
       return (
-        <mark key={i} className="tech-badge">
+        <span key={i} className="swiss-tech-token">
           {part}
-        </mark>
+        </span>
       )
     }
     return part
@@ -73,7 +73,6 @@ function FormattedJd({ text }: { text: string }) {
         return <div key={idx} className="jd-spacer" />
       }
 
-      // 匹配章节标题
       const isHeader =
         /^(?:岗位职责|工作职责|工作内容|职位职责|岗位要求|任职要求|任职资格|任职条件|我们需要你|加分项)[：:]?\s*$/i.test(
           trimmed,
@@ -82,22 +81,22 @@ function FormattedJd({ text }: { text: string }) {
 
       if (isHeader) {
         return (
-          <div key={idx} className="jd-section-header">
-            <span className="jd-section-bar" />
-            <span className="jd-section-title">{trimmed}</span>
+          <div key={idx} className="swiss-jd-header">
+            <span className="header-index">§</span>
+            <span className="header-title">{trimmed}</span>
           </div>
         )
       }
 
       return (
-        <div key={idx} className="jd-line">
+        <div key={idx} className="swiss-jd-line">
           {highlightTechKeywords(line)}
         </div>
       )
     })
   }, [text])
 
-  return <div className="formatted-jd">{rendered}</div>
+  return <div className="swiss-formatted-jd">{rendered}</div>
 }
 
 function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitle }: Props) {
@@ -106,10 +105,9 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
   if (!item) {
     return (
       <main className="detail-inspector is-empty">
-        <div className="inspector-placeholder">
-          <div className="placeholder-icon">👈</div>
-          <div className="placeholder-title">选择一个岗位开始决策</div>
-          <div className="placeholder-desc">使用鼠标点击左侧卡片，或使用键盘 j / k 上下浏览</div>
+        <div className="swiss-placeholder">
+          <div className="placeholder-mark">NO SELECTION // 无选中</div>
+          <div className="placeholder-sub">请在左侧列表按 j / k 选择岗位开始审阅</div>
         </div>
       </main>
     )
@@ -117,8 +115,8 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
 
   const key = jobKey(item)
   const href = bossHref(item.href)
-  const jobName = item.job || "（无岗位名）"
-  const company = item.company || "（无公司名）"
+  const jobName = item.job || "（未命名岗位）"
+  const company = item.company || "（未标明公司）"
   const area = item.area?.trim()
   const salary = item.salary?.trim()
   const activeText = item.active?.trim()
@@ -141,188 +139,185 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
   return (
     <main className="detail-inspector">
       <div className="inspector-scroll-area">
-        {/* 顶部头部看板 */}
-        <header className="inspector-header">
+        {/* 瑞士版式头部看板 */}
+        <header className="swiss-header">
+          <div className="header-index-strip">
+            <span className="strip-title">DOSSIER // 岗位档案</span>
+            <span className="strip-id">{item.encryptId || "ID: UNSET"}</span>
+          </div>
+
           <div className="header-top-row">
-            <div className="header-title-group">
+            <div className="header-title-wrap">
               {href ? (
                 <a
                   href={href}
                   target="_blank"
                   rel="noreferrer"
-                  className="header-job-title"
-                  title="在新标签页打开 Boss 原网页 (Enter)"
+                  className="swiss-job-title"
+                  title="在 Boss 直聘打开原始页面 (Enter)"
                 >
-                  <span>{jobName}</span>
-                  <span className="ext-icon">↗</span>
+                  {jobName}
+                  <span className="arrow-icon">↗</span>
                 </a>
               ) : (
-                <h1 className="header-job-title plain">{jobName}</h1>
+                <h1 className="swiss-job-title">{jobName}</h1>
               )}
             </div>
 
             <div className="header-actions">
               <button
                 type="button"
-                className={`action-btn action-copy-btn ${copied ? "is-copied" : ""}`}
+                className={`swiss-btn ${copied ? "is-active" : ""}`}
                 onClick={onCopySummary}
-                title="复制核心对标信息到剪贴板"
               >
                 {copied ? "已复制 ✓" : "复制对标摘要"}
               </button>
 
               <button
                 type="button"
-                className={`action-btn action-star-btn ${isStarred ? "is-on" : ""}`}
+                className={`swiss-btn ${isStarred ? "is-starred" : ""}`}
                 onClick={() => onToggleStar(key)}
               >
-                <span className="star-dot">{isStarred ? "●" : "○"}</span>
-                <span>{isStarred ? "已圈岗" : "圈岗"}</span>
-                <kbd className="btn-kbd">s</kbd>
+                <span>{isStarred ? "★ 已圈岗" : "☆ 圈岗"}</span>
+                <span className="key-tag">s</span>
               </button>
 
               {href ? (
-                <a href={href} target="_blank" rel="noreferrer" className="action-btn action-boss-btn">
-                  <span>在 Boss 打开</span>
-                  <span className="btn-icon">↗</span>
-                  <kbd className="btn-kbd on-dark">Enter</kbd>
+                <a href={href} target="_blank" rel="noreferrer" className="swiss-btn is-primary">
+                  <span>在 BOSS 打开</span>
+                  <span className="key-tag on-dark">Enter</span>
                 </a>
               ) : null}
             </div>
           </div>
 
-          <div className="header-meta-row">
-            <span className="meta-company">{company}</span>
-            {area ? <span className="meta-tag meta-area">📍 {area}</span> : null}
-            {salary ? <span className="meta-tag meta-salary">💰 {salary}</span> : null}
-            {recruiter ? <span className="meta-tag meta-recruiter">👤 {recruiter}</span> : null}
+          <div className="swiss-meta-bar">
+            <span className="meta-block company-block">{company}</span>
+            {area ? <span className="meta-block area-block">LOC: {area}</span> : null}
+            {salary ? <span className="meta-block salary-block">SAL: {salary}</span> : null}
+            {recruiter ? <span className="meta-block recruiter-block">REC: {recruiter}</span> : null}
             {activeText ? (
-              <span className={`meta-active-badge ${actCls}`}>
-                <span className="pulse-dot" />
-                {activeText}
+              <span className={`meta-block active-block ${actCls}`}>
+                ACT: {activeText}
               </span>
             ) : null}
           </div>
 
           {item.keywords && item.keywords.length > 0 ? (
-            <div className="header-keywords-row">
-              <span className="kw-label">命中搜词：</span>
-              <div className="kw-chips">
-                {item.keywords.map((kw) => (
-                  <span key={kw} className="kw-chip">
-                    {kw}
-                  </span>
-                ))}
-              </div>
+            <div className="swiss-keywords-bar">
+              <span className="kw-head">KEYWORDS //</span>
+              {item.keywords.map((kw) => (
+                <span key={kw} className="swiss-kw-chip">
+                  {kw}
+                </span>
+              ))}
             </div>
           ) : null}
         </header>
 
-        {/* AI 决策评语区 (Dossier Briefing) */}
-        <section className="inspector-section section-decision">
-          <div className="section-header">
-            <div className="section-title-wrap">
-              <div className="section-title-badge">AI</div>
-              <h2 className="section-title">智能决策情报卷宗</h2>
-              <span className={`stage-indicator tone-${stationTitle}`}>
-                {stationTitle}
-              </span>
-              {laneTitle ? <span className="lane-indicator">{laneTitle}</span> : null}
+        {/* 瑞士网格决策卷宗 */}
+        <section className="swiss-section">
+          <div className="section-masthead">
+            <div className="masthead-left">
+              <span className="section-num">01</span>
+              <h2 className="section-label">AI 决策研判卷宗</h2>
             </div>
-            {reason.note ? <span className="note-badge">⚠️ {reason.note}</span> : null}
+            <div className="masthead-right">
+              <span className="masthead-tag status-tag">STATION: {stationTitle}</span>
+              {laneTitle ? <span className="masthead-tag lane-tag">LANE: {laneTitle}</span> : null}
+              {reason.note ? <span className="masthead-tag note-tag">{reason.note}</span> : null}
+            </div>
           </div>
 
-          <div className="section-body">
+          <div className="section-content">
             {reason.modular ? (
-              <div className="modular-dossier">
-                {/* 1. 职责与场景 */}
-                <div className="dossier-card dossier-duty">
-                  <div className="card-header">
-                    <span className="card-eyebrow">MISSION / 业务与场景</span>
-                    <span className="card-badge">职责拆解</span>
+              <div className="swiss-grid-dossier">
+                {/* 01 职责与业务 */}
+                <div className="dossier-row row-duty">
+                  <div className="row-prefix">
+                    <span className="row-code">01.1</span>
+                    <span className="row-title">职责与技术场景</span>
                   </div>
-                  <div className="card-content">{reason.modular.dutyAndTech}</div>
+                  <div className="row-body">{reason.modular.dutyAndTech}</div>
                 </div>
 
-                {/* 2. 核心对标点 - 最高优先级视觉 */}
-                <div className="dossier-card dossier-benchmark">
-                  <div className="card-header">
-                    <span className="card-eyebrow">LEVERAGE / 核心对标与切入点</span>
-                    <span className="card-badge is-highlight">高契合度穿透</span>
+                {/* 02 核心对标点 - 最高优先级加粗强调 */}
+                <div className="dossier-row row-benchmark">
+                  <div className="row-prefix">
+                    <span className="row-code highlight-code">01.2</span>
+                    <span className="row-title highlight-title">对标与切入点 [核心]</span>
                   </div>
-                  <div className="card-content benchmark-text">
+                  <div className="row-body benchmark-content">
                     {highlightTechKeywords(reason.modular.benchmark)}
                   </div>
                 </div>
 
-                {/* 3. 公司背景 */}
-                <div className="dossier-card dossier-company">
-                  <div className="card-header">
-                    <span className="card-eyebrow">COMPANY / 企业背景</span>
-                    <span className="card-badge">规模与融资</span>
+                {/* 03 企业背景 */}
+                <div className="dossier-row row-company">
+                  <div className="row-prefix">
+                    <span className="row-code">01.3</span>
+                    <span className="row-title">企业规模与融资</span>
                   </div>
-                  <div className="card-content">
-                    {reason.modular.companyBg || "未标明具体融资或规模信息"}
+                  <div className="row-body">
+                    {reason.modular.companyBg || "未标明融资或规模细节"}
                   </div>
                 </div>
 
-                {/* 4. 排雷风险 */}
-                <div className={`dossier-card dossier-risk ${isRiskClean ? "is-clean" : "is-warning"}`}>
-                  <div className="card-header">
-                    <span className="card-eyebrow">TRIAGE / 排雷风险</span>
-                    <span className={`card-badge ${isRiskClean ? "is-safe" : "is-risk"}`}>
-                      {isRiskClean ? "安全通关" : "注意门槛"}
-                    </span>
+                {/* 04 排雷风险 */}
+                <div className={`dossier-row row-risk ${isRiskClean ? "is-clean" : "is-warning"}`}>
+                  <div className="row-prefix">
+                    <span className={`row-code ${isRiskClean ? "" : "risk-code"}`}>01.4</span>
+                    <span className="row-title">排雷研判与风险</span>
                   </div>
-                  <div className="card-content">{reason.modular.risk}</div>
+                  <div className="row-body risk-content">{reason.modular.risk}</div>
                 </div>
               </div>
             ) : reason.dropCategory ? (
-              <div className="drop-dossier">
-                <div className="drop-header">
-                  <span className="drop-tag">【{reason.dropCategory}】</span>
-                  <span className="drop-title">淘汰判定证据</span>
+              <div className="swiss-drop-box">
+                <div className="drop-banner">
+                  <span className="drop-mark">REJECTED // 淘汰判定</span>
+                  <span className="drop-category">【{reason.dropCategory}】</span>
                 </div>
-                <div className="drop-evidence">{reason.dropEvidence || reason.body}</div>
+                <div className="drop-evidence-text">{reason.dropEvidence || reason.body}</div>
               </div>
             ) : (
-              <div className="generic-reason-card">
-                <div className="generic-reason-header">
-                  {reason.kind ? <span className="kind-pill">{reason.kind}</span> : null}
-                  {reason.phase ? <span className="phase-pill">{reason.phase}</span> : null}
+              <div className="swiss-generic-box">
+                <div className="generic-tags">
+                  {reason.kind ? <span className="swiss-tag">{reason.kind}</span> : null}
+                  {reason.phase ? <span className="swiss-tag">{reason.phase}</span> : null}
                 </div>
-                <div className="generic-reason-body">{reason.body}</div>
+                <div className="generic-body">{reason.body}</div>
               </div>
             )}
           </div>
         </section>
 
-        {/* 原始 JD 对照区 */}
-        <section className="inspector-section section-jd">
-          <div className="section-header">
-            <div className="section-title-wrap">
-              <div className="section-title-badge jd-badge">JD</div>
-              <h2 className="section-title">原始岗位职责与任职要求</h2>
+        {/* 瑞士纯粹 JD 原文阅读区 */}
+        <section className="swiss-section">
+          <div className="section-masthead">
+            <div className="masthead-left">
+              <span className="section-num">02</span>
+              <h2 className="section-label">原始岗位职责与任职要求 (JD)</h2>
             </div>
-            <span className={`jd-status-badge ${hasJd ? "is-present" : "is-missing"}`}>
-              {hasJd ? "已获取全文" : "初筛阶段无详情"}
-            </span>
+            <div className="masthead-right">
+              <span className={`masthead-tag ${hasJd ? "jd-ready" : "jd-missing"}`}>
+                {hasJd ? "FULL-TEXT AVAILABLE // 已拉取" : "TITLE ONLY // 粗筛未抓取"}
+              </span>
+            </div>
           </div>
 
-          <div className="section-body">
+          <div className="section-content jd-content-box">
             {hasJd ? (
-              <div className="jd-text-wrapper">
-                <FormattedJd text={item.jd || ""} />
-              </div>
+              <FormattedJd text={item.jd || ""} />
             ) : (
-              <div className="jd-missing-notice">
-                <div className="notice-icon">📭</div>
+              <div className="swiss-missing-notice">
+                <div className="notice-code">NULL // NO JD CAPTURED</div>
                 <div className="notice-text">
-                  本岗位停留在初筛阶段，未抓取详情 JD
+                  本岗位在列表标题粗筛阶段停驻，未发起详情页抓取请求
                 </div>
-                <div className="notice-sub">
-                  流水线停驻：<strong>{stationTitle}</strong>
-                  {laneTitle ? ` · 分类：${laneTitle}` : ""}
+                <div className="notice-path">
+                  当前归档停驻：{stationTitle}
+                  {laneTitle ? ` // 分类：${laneTitle}` : ""}
                 </div>
               </div>
             )}

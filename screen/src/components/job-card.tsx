@@ -20,8 +20,8 @@ function activeClass(text?: string): string {
 function JobCard({ item, isSelected, isStarred, onSelect, onToggleStar }: Props) {
   const cardRef = useRef<HTMLDivElement>(null)
   const key = jobKey(item)
-  const jobName = item.job || "（无岗位名）"
-  const company = item.company || "（无公司名）"
+  const jobName = item.job || "（未命名岗位）"
+  const company = item.company || "（未标明公司）"
   const area = item.area?.trim()
   const salary = item.salary?.trim()
   const activeText = item.active?.trim()
@@ -38,14 +38,12 @@ function JobCard({ item, isSelected, isStarred, onSelect, onToggleStar }: Props)
     <div
       ref={cardRef}
       onClick={onSelect}
-      className={`job-card ${isSelected ? "is-selected" : ""} ${isStarred ? "is-starred" : ""}`}
+      className={`swiss-card ${isSelected ? "is-selected" : ""} ${isStarred ? "is-starred" : ""}`}
     >
-      <div className="card-selection-notch" />
-
-      <div className="card-left">
+      <div className="card-top-row">
         <button
           type="button"
-          className={`star-btn ${isStarred ? "is-on" : ""}`}
+          className={`swiss-star ${isStarred ? "is-on" : ""}`}
           onClick={(e) => {
             e.stopPropagation()
             onToggleStar(key)
@@ -55,37 +53,33 @@ function JobCard({ item, isSelected, isStarred, onSelect, onToggleStar }: Props)
         >
           {isStarred ? "★" : "☆"}
         </button>
+
+        <span className="card-title" title={jobName}>
+          {jobName}
+        </span>
+
+        {salary ? <span className="card-salary">{salary}</span> : null}
       </div>
 
-      <div className="card-main">
-        <div className="card-row1">
-          <span className="card-title" title={jobName}>
-            {jobName}
+      <div className="card-meta-row">
+        <span className="card-company" title={company}>
+          {company}
+        </span>
+        {area ? <span className="card-area">/ {area}</span> : null}
+        {activeText ? (
+          <span className={`card-active-tag ${actCls}`} title={`HR活跃度：${activeText}`}>
+            {activeText}
           </span>
-          {salary ? <span className="card-salary">{salary}</span> : null}
-        </div>
+        ) : null}
+      </div>
 
-        <div className="card-row2">
-          <span className="card-company" title={company}>
-            {company}
-          </span>
-          {area ? <span className="card-area">{area}</span> : null}
-          {activeText ? (
-            <span className={`card-active-pill ${actCls}`} title={`HR活跃度：${activeText}`}>
-              <span className="status-dot" />
-              {activeText}
-            </span>
-          ) : null}
-        </div>
-
-        <div className="card-row3">
-          {reason.note ? <span className="card-note-badge">{reason.note}</span> : null}
-          <span className="card-snippet" title={reason.summarySnippet}>
-            {reason.modular ? <span className="card-kind-icon">⚡</span> : null}
-            {reason.dropCategory ? <span className="card-drop-tag">[{reason.dropCategory}] </span> : null}
-            {reason.summarySnippet}
-          </span>
-        </div>
+      <div className="card-snippet-row">
+        {reason.note ? <span className="card-note-tag">[{reason.note}]</span> : null}
+        <span className="card-snippet-text" title={reason.summarySnippet}>
+          {reason.modular ? <span className="swiss-symbol">§ </span> : null}
+          {reason.dropCategory ? <span className="swiss-drop-tag">[{reason.dropCategory}] </span> : null}
+          {reason.summarySnippet}
+        </span>
       </div>
     </div>
   )
