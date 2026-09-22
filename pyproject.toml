@@ -3,8 +3,18 @@ name = "resume"
 version = "0.1.0"
 description = "个人求职投递件与投递进度"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "patchright",
+    "pyyaml",
+]
+
+[dependency-groups]
+dev = ["pytest"]
 
 [tool.uv]
 package = false
 link-mode = "copy"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
