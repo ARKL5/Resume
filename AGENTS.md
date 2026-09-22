@@ -19,3 +19,5 @@
 投递件：`pwsh -File scripts/verify.ps1`。声称渲染完成时再按渲染 skill 出 PDF。
 
 对照页：`cd screen; npm run build`。看页面 `npm run dev`。
+
+筛选运行时：`uv run --group dev pytest`。启动（仓库根、长驻，不要用短超时当前台杀掉）：`uv run python src/boss_screen/__main__.py`。代聊（当场点名；筛选还在跑会拒绝）：`uv run python src/boss_screen/__main__.py chat <encryptId> [--image]`。
