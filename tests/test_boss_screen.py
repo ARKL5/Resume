@@ -516,6 +516,7 @@ def test_setup_logging_writes_to_file(tmp_path: Path):
     target = tmp_path / "custom.log"
     log_file = setup_logging(target)
     assert log_file == target
+    assert log_file is not None
     test_log = logging.getLogger("boss_screen")
     test_log.info("测试写入运行日志")
     for handler in logging.getLogger().handlers:

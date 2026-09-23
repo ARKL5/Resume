@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> None:
         log.info("代聊开始，%s 个，发图=%s", len(encrypt_ids), send_image)
         playwright, context = open_chrome(settings.browser_data)
         # 至少留一个页。关到零页时，持久上下文会把 Chrome 一起退出。
-        keeper = fresh_page(context)
+        _keeper = fresh_page(context)
         seen = load_ids(settings.opened_chats)
         ok = _chat_all(context, settings, encrypt_ids, seen, send_image, stop)
         log.info("代聊结束，成功 %s / %s", ok, len(encrypt_ids))
@@ -153,6 +153,9 @@ def _chat_one(context, settings, encrypt_id: str, send_image: bool, stop) -> boo
             append_opened(settings.opened_chats, encrypt_id)
             log.info("继续沟通，记已开聊并跳过 %s", encrypt_id)
             return True
+        if button is None:
+            log.warning("未找到立即沟通按钮，跳过 %s", encrypt_id)
+            return False
         button.click()
         filled = _fill_and_send(page, settings.greeting, stop)
         if not should_record("send", filled):

@@ -46,7 +46,7 @@ def ingest_job_list(body: str) -> list[Card]:
         return []
     if not isinstance(root, dict):
         return []
-    zp = root.get("zpData") if isinstance(root.get("zpData"), dict) else {}
+    zp = _as_dict(root.get("zpData"))
     listing = zp.get("jobList") or zp.get("list") or root.get("jobList")
     if not isinstance(listing, list):
         return []
@@ -61,12 +61,12 @@ def ingest_job_list(body: str) -> list[Card]:
 
 
 def _card_from_item(job: dict) -> Card | None:
-    job_info = job.get("jobInfo") if isinstance(job.get("jobInfo"), dict) else {}
-    boss = job.get("bossInfo") if isinstance(job.get("bossInfo"), dict) else {}
-    brand = job.get("brandComInfo") if isinstance(job.get("brandComInfo"), dict) else None
-    if brand is None and isinstance(job.get("brand"), dict):
-        brand = job["brand"]
-    brand = brand or {}
+    job_info = _as_dict(job.get("jobInfo"))
+    boss = _as_dict(job.get("bossInfo"))
+    brand_raw = job.get("brandComInfo")
+    if not isinstance(brand_raw, dict):
+        brand_raw = job.get("brand")
+    brand = brand_raw if isinstance(brand_raw, dict) else {}
     encrypt_id = _first(_text(job, "encryptId"), _text(job, "encryptJobId"), _text(job_info, "encryptId"))
     if not encrypt_id:
         return None
@@ -97,10 +97,10 @@ def parse_detail(body: str) -> dict:
         root = json.loads(body)
     except json.JSONDecodeError:
         return {}
-    zp = root.get("zpData") if isinstance(root, dict) and isinstance(root.get("zpData"), dict) else {}
-    job_info = zp.get("jobInfo") if isinstance(zp.get("jobInfo"), dict) else {}
-    boss = zp.get("bossInfo") if isinstance(zp.get("bossInfo"), dict) else {}
-    brand = zp.get("brandComInfo") if isinstance(zp.get("brandComInfo"), dict) else {}
+    zp = _as_dict(root.get("zpData")) if isinstance(root, dict) else {}
+    job_info = _as_dict(zp.get("jobInfo"))
+    boss = _as_dict(zp.get("bossInfo"))
+    brand = _as_dict(zp.get("brandComInfo"))
     city = _text(job_info, "locationName")
     district = _first(
         _text(job_info, "areaDistrict"),
@@ -128,7 +128,11 @@ def parse_detail(body: str) -> dict:
     }
 
 
-def _active(obj: dict) -> str:
+def _as_dict(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _active(obj: object) -> str:
     value = obj.get("activeTimeDesc") if isinstance(obj, dict) else None
     if not isinstance(value, str):
         return ""
@@ -138,7 +142,7 @@ def _active(obj: dict) -> str:
     return text
 
 
-def _text(obj: dict, key: str) -> str:
+def _text(obj: object, key: str) -> str:
     if not isinstance(obj, dict):
         return ""
     value = obj.get(key)
@@ -152,7 +156,7 @@ def _first(*parts: str) -> str:
     return ""
 
 
-def _labels(obj: dict, *keys: str) -> str:
+def _labels(obj: object, *keys: str) -> str:
     parts: list[str] = []
     for key in keys:
         _collect(obj.get(key) if isinstance(obj, dict) else None, parts)

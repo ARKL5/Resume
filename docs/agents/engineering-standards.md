@@ -1,35 +1,35 @@
 # Engineering standards
 
-改代码或设计之前、以及审查时使用。
+Use this baseline during implementation and review.
 
 ## Baseline
 
-- **Follow the surroundings.** 跟仓库现有约定；必须偏离时写明原因。
-- **Complete the task.** 交付被要求的行为，以及相关失败路径。
-- **Delete with evidence.** 删除前核对调用方、校验、替代路径和兼容义务。
-- **Test behaviour.** 断言来自需求、契约或缺陷。修 bug 时尽量先让回归在该缺陷上失败。测试按场景和期望结果命名。
-- **Automate deterministic rules.** lint、类型、校验放进工具；入口写在 [`AGENTS.md`](../../AGENTS.md) 的 Verification。
+- **Follow the surroundings.** Follow project conventions and explain necessary departures.
+- **Complete the task.** Deliver the requested behaviour and relevant failure paths.
+- **Replace outright.** A change leaves one way to do the thing. Callers and tests move with that way.
+- **Test behaviour.** Derive assertions from requirements, contracts, or defects. For fixes, show the regression fails on the bug where practical. Name tests by scenario and expected result.
+- **Automate deterministic rules.** Use lint, types, and tests. Keep their configuration in tools, not in this file.
 
 ## Project constraints
 
-- **投递件。** 不按 JD 另写一份。岗位锁国内 Agent / LLM 应用（含要写代码的大模型应用）；城市杭州，JD 写明可远程才加。不改 PDF 项目 bullet。
-- **边界。** 筛选运行时在仓库根 `src/boss_screen/`（ADR 0007）。对照页只改 `screen/`，自己读仓库根 `boss.yaml`。代聊是单独命令，须当场点名（ADR 0009）。本仓维护投递件与投递进度，不是招聘平台、不是业务后端。
-- **个人工具。** 不发布、无用户、无增长。能少一层选择、少一种模式、少一个字段就少。可维护优先于完整；本人能看懂、能改，比防呆和自动跟踪重要。
-- **证据。** 经历与数字以 `resume/` JSON 为准。口述底稿仅当本人当轮指出才用。开放题只写投递件正文里已有的内容。
+- **Applications.** Do not write a separate resume per JD. Roles stay on domestic Agent / LLM application work, including LLM-application roles that write code. The city is Hangzhou; add a role only when the JD states that remote work is allowed. Do not change the project bullets in the PDF.
+- **Boundary.** The screening runtime lives at the repo root in `src/boss_screen/`. The workbench only changes `screen/`, and reads the repo-root `boss.yaml` itself. This repo maintains application materials and application progress. It is not a hiring platform and not a business backend.
+- **Personal tool.** Do not publish. Prefer one less choice, mode, or field. The owner being able to read and change it beats foolproofing and automatic tracking.
+- **Evidence.** Experience and numbers come from the `resume/` JSON. Use oral notes only when the owner points at them in the current turn. Open-ended answers use only text already in the application body.
 
 ## Smells
 
-审查时对照 Fowler, *Refactoring*, ch. 3。发现要落到具体影响，再选相称的改法。
+Review cues from Fowler, _Refactoring_, ch. 3. Tie findings to concrete impact and choose a proportionate remedy.
 
-- **Mysterious Name:** 名字或它想表达的职责不清楚。
-- **Duplicated Code:** 必须一起改的知识散在多处。
-- **Feature Envy:** 行为更该靠近它所操作的数据。
-- **Data Clumps:** 总是一起出现的值，应收成一个概念。
-- **Primitive Obsession:** 该用领域类型表达含义或排除非法状态。
-- **Repeated Switches:** 会一起变的分发逻辑应集中。
-- **Shotgun Surgery:** 一条规则要改很多处。
-- **Divergent Change:** 一个模块有互不相关的变化原因。
-- **Speculative Generality:** 没有当前用途的抽象和钩子。
-- **Message Chains:** 遍历把实现细节暴露出去。
-- **Middle Man:** 委托既不加策略也不构成有用边界。
-- **Refused Bequest:** 接口契约未兑现，或该改组合。
+- **Mysterious Name:** clarify the name or the responsibility it struggles to express.
+- **Duplicated Code:** extract shared knowledge that must change together.
+- **Feature Envy:** move behaviour toward the data and responsibility it belongs to.
+- **Data Clumps:** group values that form one concept or invariant.
+- **Primitive Obsession:** use a domain type to express meaning or exclude invalid states.
+- **Repeated Switches:** centralize recurring dispatch that changes together.
+- **Shotgun Surgery:** gather responsibility when one rule requires scattered edits.
+- **Divergent Change:** separate a module's independent reasons to change.
+- **Speculative Generality:** remove abstractions and hooks without a current use.
+- **Message Chains:** hide traversal that exposes implementation details.
+- **Middle Man:** remove delegation that adds no policy or useful boundary.
+- **Refused Bequest:** repair an unfulfilled interface contract or prefer composition.
