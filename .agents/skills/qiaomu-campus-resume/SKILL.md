@@ -16,14 +16,14 @@ description: |
 
 ## 校验与渲染
 
-解释器用仓库 `uv`，在 `pwsh` 里跑：
+解释器用仓库 `uv`：
 
-```pwsh
-uv run .agents/skills/qiaomu-campus-resume/scripts/validate_resume.py `
+```bash
+uv run .agents/skills/qiaomu-campus-resume/scripts/validate_resume.py \
   resume/resume-data-agent.json --theme swiss
 
-uv run .agents/skills/qiaomu-campus-resume/scripts/render_resume.py `
-  resume/resume-data-agent.json --theme swiss `
+uv run .agents/skills/qiaomu-campus-resume/scripts/render_resume.py \
+  resume/resume-data-agent.json --theme swiss \
   --output-dir resume/output
 ```
 

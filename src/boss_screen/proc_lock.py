@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import fcntl
 import logging
-import msvcrt
 from pathlib import Path
 
 from boss_screen.config import REPO_ROOT
@@ -23,7 +23,7 @@ def acquire(path: Path):
             handle.write(b"\0")
             handle.flush()
         handle.seek(0)
-        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         handle.close()
         return None
@@ -44,7 +44,7 @@ def release(handle) -> None:
         return
     try:
         handle.seek(0)
-        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     except OSError:
         pass
     handle.close()
