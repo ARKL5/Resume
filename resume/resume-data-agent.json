@@ -11,15 +11,14 @@
   },
   "basics": {
     "name": "王中宇",
-    "headline": "Agent 开发实习生｜每周 5 天 · 随时到岗",
+    "headline": "Agent 开发实习生｜常驻杭州 · 每周 5 天 · 随时到岗",
     "phone": "17280721257",
     "email": "ark33419@gmail.com",
     "location": "杭州",
     "links": [
-      {"label": "GitHub", "url": "https://github.com/ARKL5"},
-      {"label": "Agent Skills", "url": "https://github.com/ARKL5/agents-wsl"}
+      {"label": "GitHub", "url": "https://github.com/ARKL5"}
     ],
-    "summary": "**多 Harness 架构与路由**：深入适配 Claude Code、Antigravity 等主流 Harness；掌握上下文常驻与按需加载剪裁机制，具备模型路由、API Proxy 与工作流定制能力。\n**上下文工程与 Prompt 治理**：具备成熟上下文工程思维；基于信息分层与渐进式披露控制窗口负载，设计明确完成契约（Completion Criteria）提升交付确定性。\n**工程化 Skills 与规范驱动**：将需求拆解、领域建模、代码审查与 TDD 沉淀为 Agent Skills；善于建立以规范和自动化测试驱动的高效研发闭环。"
+    "summary": "**主流 Harness 与环境治理**：熟练适配 Claude Code、Antigravity 等工具；善于梳理配置与工具链开销，剪裁冗余常驻上下文，保持模型窗口专注与低消耗。\n**上下文工程与交互控制**：掌握按需加载与信息分层技巧；习惯为复杂任务定义明确的完成检查契约（Completion Criteria），有效减少 Agent 偏航与过早交卷。\n**工作流模块化与 Skills 沉淀**：将领域建模、规范审查与自动化测试等高频流程，模块化沉淀为 20+ 个可复用 Agent Skills，形成严谨高效的辅助研发习惯。"
   },
   "education": [
     {
