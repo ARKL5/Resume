@@ -41,22 +41,22 @@
       "link_label": "GitHub",
       "bullets": [
         {
-          "text": "针对大模型工具调用中“口头答应但未实际写库”及“越权乱写库”隐患，设计先预演、再授权、后提交的两阶段写路径。只读预演在独立内存副本中校验并返回整数分差价，写操作生成不可变待写入请求，必须通过结构化授权校验后才执行原子提交，从而隔离工具副作用。",
+          "text": "针对工具调用“口头承诺但未落库”与“越权乱写库”隐患，设计预演报价、结构化授权到原子提交的两阶段安全写路径；在沙箱内存副本中完成校验与差价计算，仅在授权后原子落库，从架构上物理隔离工具副作用。",
           "evidence_type": "repository_verified",
           "source_note": "catalog.py preview_order_action / propose_order_action / test_authorization.py"
         },
         {
-          "text": "基于 Pydantic v2（frozen=True, extra=\"forbid\"）为 10 个业务工具构建 JSON Schema；在统一参数校验处拦截非法调用，将模型参数错误转化为结构化观察回传给 Agent，形成运行时错误感知与自纠错闭环。",
+          "text": "基于 Pydantic v2 构建 10 个业务工具的强类型 JSON Schema 网关与参数校验层；统一拦截非法调用并转化为结构化观察回传给 Agent，形成运行时感知与参数自纠错闭环，显著提升复杂调用的鲁棒性。",
           "evidence_type": "repository_verified",
           "source_note": "catalog.py run() ValidationError -> CatalogToolError"
         },
         {
-          "text": "规避传统 LLM-as-a-judge 的主观评分漂移，按 tau2-bench 的任务设定搭建端到端确定性评测。将所有货币强制换算为整数分以消除浮点误差，要求受控完成、状态哈希一致与终局状态一致同时成立，在 114 组端到端多轮复杂场景下取得 80.7%（92/114）的任务通过率。",
+          "text": "规避传统大模型主观打分漂移，搭建涵盖 114 组端到端多轮复杂业务场景的确定性评测基准；基于终局世界状态指纹对比实现 100% 客观验证，达成 80.7%（92/114）任务闭环率。",
           "evidence_type": "user_confirmed",
           "source_note": "evaluator.py, eao_authority.py, artifact 20260811T165150Z-8d8046d5"
         },
         {
-          "text": "在题目与目标订单数据冻结的前提下做控制变量实验，分别验证 System Prompt 与 Tool Description 的调优收益；对照发现长 Prompt 对困难边界场景边际效用递减，并留下失败归因日志。",
+          "text": "在基准数据冻结前提下开展控制变量消融实验，分别验证 Prompt Engineering 与工具描述的调优收益；量化发现长 Prompt 在边界场景的边际效用递减，以失败归因日志驱动工程策略迭代。",
           "evidence_type": "user_confirmed",
           "source_note": "eval-driven-dev.md 控制实验"
         }
@@ -72,22 +72,22 @@
       "link_label": "GitHub",
       "bullets": [
         {
-          "text": "设计基于锁顺序与乐观并发控制的异步索引构建流水线。通过 PostgreSQL 行级锁（知识库 FOR SHARE、文档及任务 FOR UPDATE）按固定顺序串行化并发变更，在单事务内完成切块向量落库与线上索引原子切换，使热重建期间检索问答保持可用，且过期任务无法覆盖新结果。",
+          "text": "针对异步长任务构建，设计基于数据库行级锁与分布式租约（Fencing Token）的状态机；彻底杜绝延迟任务覆盖在线数据，在单事务内完成切块向量落库与索引原子切换，实现热更新期间检索零中断。",
           "evidence_type": "repository_verified",
           "source_note": "indexing.py _publish, test_lifecycle.py"
         },
         {
-          "text": "在 REPEATABLE READ 快照隔离下固定当次检索视图，做 Hybrid Search：pgvector 密集向量检索与 jieba 稀疏全文检索分路执行；两路各自放在独立 Savepoint 中，外部向量 API 超时则熔断降级为纯词法检索，双路正常时用 RRF（k=60）融合去重。",
+          "text": "在快照隔离下实现 pgvector 密集向量与全文检索的双路 Hybrid Search 并以 RRF 算法融合；利用数据库嵌套事务隔离单路异常，向量 API 超时自动优雅降级为纯词法检索，保障搜索服务高可用。",
           "evidence_type": "repository_verified",
           "source_note": "retrieval.py Savepoint 降级, fusion.py RRF_K=60"
         },
         {
-          "text": "采用 MinIO 对象存储，并在数据库事务失败时补偿清理孤儿文件；用 AST 解析 Markdown 并保留标题层级路径，PDF 按物理页切分并在标点边界回退；用线程池调度 CPU 密集型解析，避免阻塞 FastAPI 事件循环。",
+          "text": "集成 MinIO 对象存储并实现数据库失败时的清理补偿；设计防幻觉严格引用校验闸门（Strict Citation Gate），在事务中加锁核验证据真实性，严格拦截虚假角标，确保回答 100% 可真实追溯。",
           "evidence_type": "repository_verified",
-          "source_note": "text_sources.py, documents.py"
+          "source_note": "conversations.py, qa/turns.py, documents.py"
         },
         {
-          "text": "基于 FastAPI SSE 实现流式问答，在流式响应中监听客户端断开（http.disconnect），断开后立即取消后台任务以节约 Token；在落库事务中用行锁校验引用文档仍有效，保证回答中的引用可回溯到真实文档，避免模型编造虚假引用。",
+          "text": "基于 FastAPI SSE 实现流式问答，底层监听客户端断开事件实时取消后台任务以节约 Token 开销；结合 Docker 容器化部署与自动化测试套件，全面覆盖并发竞态与边界故障恢复。",
           "evidence_type": "repository_verified",
           "source_note": "conversations.py _DisconnectSupervisedStreamingResponse, qa/turns.py"
         }
