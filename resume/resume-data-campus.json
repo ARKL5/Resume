@@ -19,7 +19,7 @@
       {"label": "GitHub", "url": "https://github.com/ARKL5"},
       {"label": "Agent Skills", "url": "https://github.com/ARKL5/agents-wsl"}
     ],
-    "summary": "**主流 Harness 与环境治理**：熟练适配 Claude Code、Antigravity 等工具；善于梳理配置与工具链开销，剪裁冗余常驻上下文，保持模型窗口专注与低消耗。\n**上下文工程与交互控制**：掌握按需加载与信息分层技巧；习惯为复杂任务定义明确的完成检查契约（Completion Criteria），有效减少 Agent 偏航与过早交卷。\n**工作流模块化与 Skills 沉淀**：将领域建模、规范审查与自动化测试等高频流程，模块化沉淀为 20+ 个可复用 Agent Skills，形成严谨高效的辅助研发习惯。"
+    "summary": "**主流 Harness 与环境治理**：熟练适配 Claude Code、Antigravity 等工具；善于梳理配置与工具链开销，剪裁冗余常驻上下文，保持模型窗口专注与低消耗。\n**上下文工程与交互控制**：掌握按需加载与信息分层技巧；习惯为复杂任务定义清晰的完成检查契约，有效减少 Agent 偏航与过早交卷。\n**工作流模块化与 Skills 沉淀**：将领域建模、规范审查与自动化测试等高频流程，模块化沉淀为 20+ 个可复用 Agent Skills，形成严谨高效的辅助研发习惯。"
   },
   "education": [
     {
@@ -52,7 +52,7 @@
           "source_note": "catalog.py run() ValidationError -> CatalogToolError"
         },
         {
-          "text": "规避传统大模型主观打分漂移，搭建涵盖 114 组端到端多轮复杂业务场景的确定性评测基准；基于终局世界状态指纹对比实现 100% 客观验证，达成 80.7%（92/114）任务闭环率。",
+          "text": "规避传统大模型主观打分漂移，搭建涵盖 114 组端到端多轮复杂业务场景的确定性评测基准；基于终局世界状态指纹对比实现 100% 客观验证，达成 80.7% 任务闭环率。",
           "evidence_type": "user_confirmed",
           "source_note": "evaluator.py, eao_authority.py, artifact 20260811T165150Z-8d8046d5"
         },
@@ -73,7 +73,7 @@
       "link_label": "GitHub",
       "bullets": [
         {
-          "text": "针对异步长任务构建，设计基于数据库行级锁与分布式租约（Fencing Token）的状态机；彻底杜绝延迟任务覆盖在线数据，在单事务内完成切块向量落库与索引原子切换，实现热更新期间检索零中断。",
+          "text": "针对异步长任务构建，设计基于数据库行级锁与分布式租约机制的状态机；彻底杜绝延迟任务覆盖在线数据，在单事务内完成切块向量落库与索引原子切换，实现热更新期间检索零中断。",
           "evidence_type": "repository_verified",
           "source_note": "indexing.py _publish, test_lifecycle.py"
         },
@@ -83,7 +83,7 @@
           "source_note": "retrieval.py Savepoint 降级, fusion.py RRF_K=60"
         },
         {
-          "text": "集成 MinIO 对象存储并实现数据库失败时的清理补偿；设计防幻觉严格引用校验闸门（Strict Citation Gate），在事务中加锁核验证据真实性，严格拦截虚假角标，确保回答 100% 可真实追溯。",
+          "text": "集成 MinIO 对象存储并实现数据库失败时的清理补偿；设计防幻觉引用强校验机制，在事务中加锁核验证据真实性，严格拦截虚假角标，确保回答 100% 可真实追溯。",
           "evidence_type": "repository_verified",
           "source_note": "conversations.py, qa/turns.py, documents.py"
         },
