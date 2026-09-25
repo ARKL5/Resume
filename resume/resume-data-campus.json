@@ -18,7 +18,7 @@
     "links": [
       {"label": "GitHub", "url": "https://github.com/ARKL5"}
     ],
-    "summary": "**Agent 工作流与架构适配**：熟练掌握主流 Agent Harness 架构与 API Proxy 适配，具备快速搭建、定制多模型 AI-Assisted 开发工作流的能力，能完成多模型路由、技能调用与本地代理的工程化接入。\n**工具链沉淀与 Prompt 工程**：善于将高频工序模块化沉淀为 Agent Skills，并持续维护定制化 Prompt 与工程化辅助工具链。"
+    "summary": "**多 Harness 架构与路由**：深入适配 Claude Code、Antigravity 等主流 Harness；掌握上下文常驻与按需加载剪裁机制，具备模型路由、API Proxy 与工作流定制能力。\n**上下文工程与 Prompt 治理**：具备成熟上下文工程思维；基于信息分层与渐进式披露控制窗口负载，设计明确完成契约（Completion Criteria）提升交付确定性。\n**工程化 Skills 与规范驱动**：将需求拆解、领域建模、代码审查与 TDD 沉淀为 Agent Skills；善于建立以规范和自动化测试驱动的高效研发闭环。"
   },
   "education": [
     {
