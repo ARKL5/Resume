@@ -14,7 +14,7 @@
 
 投递件：`uv run .agents/skills/qiaomu-campus-resume/scripts/validate_resume.py resume/resume-data-agent.json`，校招件把路径换成 `resume/resume-data-campus.json`。只查 JSON 结构，不含 PDF。声称渲染完成时再按渲染 skill 出 PDF。
 
-对照页：`cd screen && npm test && npm run build`。测试覆盖数据脚本，构建覆盖类型检查与打包。
+对照页：`cd screen && pnpm test && pnpm run build`。测试覆盖数据脚本，构建覆盖类型检查与打包。
 
 筛选运行时：`uv run --group dev ruff check src tests`，`uv run --group dev pyright`，`uv run --group dev pytest`。
 
