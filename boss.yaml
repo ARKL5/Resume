@@ -2,10 +2,8 @@
 # detailLimit：-1 不设上限，0 不点 JD，正数是本轮最多点几次。onRisk：stop 遇人机/风控结束本轮，wait 暂停等人。
 keywords:
   - AI Agent
-  - Agent开发
 cities:
   - 杭州
-  - 上海
 jobType: 实习
 experience:
   - 在校生
