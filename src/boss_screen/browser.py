@@ -4,12 +4,22 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import random
 import threading
 import time
 from pathlib import Path
 
 log = logging.getLogger("boss_screen")
+
+
+def proxy_args(environ=None) -> list[str]:
+    """让本机 Chrome 走本机代理。WSL 里 zhipin 只有代理可达，直连是空白页。"""
+    env = os.environ if environ is None else environ
+    proxy = env.get("https_proxy") or env.get("HTTPS_PROXY") or env.get("http_proxy") or env.get("HTTP_PROXY")
+    if not proxy:
+        return []
+    return [f"--proxy-server={proxy}", "--proxy-bypass-list=localhost;127.0.0.1;::1"]
 
 
 def open_chrome(user_data: Path):
@@ -31,8 +41,7 @@ def open_chrome(user_data: Path):
             "--hide-crash-restore-bubble",
             "--no-first-run",
             "--no-default-browser-check",
-            "--no-proxy-server",
-            "--proxy-bypass-list=*",
+            *proxy_args(),
         ],
     )
     return playwright, context

@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 from boss_screen.ai import parse_keep, parse_title_action
-from boss_screen.browser import detail_gap_seconds, halt_if_risk
+from boss_screen.browser import detail_gap_seconds, halt_if_risk, proxy_args
 from boss_screen.cards import ingest_job_list, parse_detail
 from boss_screen.chat import (
     _parse_args,
@@ -373,6 +373,15 @@ def test_detail_gap_stays_within_half_and_full():
     for _ in range(30):
         gap = detail_gap_seconds(18)
         assert 9 <= gap <= 18
+
+
+def test_chrome_proxy_follows_environment():
+    assert proxy_args({"https_proxy": "http://127.0.0.1:7897"}) == [
+        "--proxy-server=http://127.0.0.1:7897",
+        "--proxy-bypass-list=localhost;127.0.0.1;::1",
+    ]
+    assert proxy_args({"http_proxy": "http://127.0.0.1:7897"})[0] == "--proxy-server=http://127.0.0.1:7897"
+    assert proxy_args({}) == []
 
 
 def test_second_process_cannot_take_the_lock(tmp_path: Path):
