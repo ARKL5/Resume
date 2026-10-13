@@ -236,7 +236,6 @@ def with_stored_hr_drop(row: dict) -> dict:
     copied = dict(row)
     copied["stage"] = "rule_drop"
     copied["reason"] = rule_reason("HR未近3天活跃：" + active.strip())
-    copied["hrDrop"] = True
     return copied
 
 

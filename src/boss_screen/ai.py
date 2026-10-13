@@ -11,57 +11,27 @@ from boss_screen.config import Settings, fill
 
 
 def parse_title_action(raw: str | None) -> tuple[str | None, str]:
-    if raw is None:
-        return None, "空回复"
-    reason = parse_reason(raw)
-    try:
-        obj = json.loads(_json_object(raw))
-    except json.JSONDecodeError:
-        return None, reason
-    action = str(obj.get("action") or "").strip().lower()
-    if action in ("click", "park", "drop"):
-        return action, reason
-    return None, reason
+    obj, reason = _parse_reply(raw)
+    action = obj.get("action")
+    return (action if action in ("click", "park", "drop") else None), reason
 
 
-def parse_keep(raw: str | None) -> bool | None:
-    if raw is None:
-        return None
+def parse_jd(raw: str | None) -> tuple[bool | None, str]:
+    obj, reason = _parse_reply(raw)
+    keep = obj.get("keep")
+    return (keep if isinstance(keep, bool) else None), reason
+
+
+def _parse_reply(raw: str | None) -> tuple[dict, str]:
+    if not raw:
+        return {}, "空回复"
     try:
-        obj = json.loads(_json_object(raw))
+        obj = json.loads(raw)
     except json.JSONDecodeError:
         obj = None
-    if isinstance(obj, dict) and "keep" in obj:
-        value = obj["keep"]
-        if isinstance(value, bool):
-            return value
-    lower = raw.lower()
-    if '"keep":true' in lower or '"keep": true' in lower:
-        return True
-    if '"keep":false' in lower or '"keep": false' in lower:
-        return False
-    return None
-
-
-def parse_reason(raw: str | None) -> str:
-    if raw is None:
-        return "空回复"
-    try:
-        obj = json.loads(_json_object(raw))
-        if isinstance(obj, dict) and "reason" in obj:
-            return str(obj.get("reason") or "")
-    except json.JSONDecodeError:
-        pass
-    text = raw.replace("\n", " ").strip()
-    return text[:200]
-
-
-def _json_object(raw: str) -> str:
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start >= 0 and end > start:
-        return raw[start : end + 1]
-    return raw
+    if isinstance(obj, dict):
+        return obj, str(obj.get("reason") or "")
+    return {}, raw.replace("\n", " ").strip()[:200]
 
 
 def complete(settings: Settings, content: str) -> str:

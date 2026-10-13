@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
-import { lanesFor } from "./constants"
+import { lanesFor, STATIONS } from "./constants"
 import { sortByReasonGroup } from "./groups"
 import { loadStars, saveStars } from "./stars"
 import TopBar from "./components/top-bar"
@@ -23,15 +23,14 @@ import {
 } from "./types"
 
 function getUrlParams() {
-  if (typeof window === "undefined") return { urlKey: null, station: null, query: "" }
   const params = new URLSearchParams(window.location.search)
   const paramFile = params.get("file")
   const paramGroup = params.get("group") || "seen"
-  const paramStation = params.get("station") as StationId | null
+  const paramStation = STATIONS.find((s) => s.id === params.get("station"))
   const paramQuery = params.get("q")
   return {
     urlKey: paramFile ? `${paramGroup}:${paramFile}` : null,
-    station: paramStation && ["keep", "wait", "ai", "rule"].includes(paramStation) ? paramStation : null,
+    station: paramStation?.id ?? null,
     query: paramQuery || "",
   }
 }
@@ -66,8 +65,8 @@ export default function ScreenBoard() {
       const filesRes = await fetch("/api/screen-files")
       if (gen !== loadGen.current) return
       if (!filesRes.ok) throw new Error("files")
-      const body: { files?: ScreenFile[] } = await filesRes.json()
-      const listed = Array.isArray(body.files) ? body.files : []
+      const body: { files: ScreenFile[] } = await filesRes.json()
+      const listed = body.files
       setFiles(listed)
 
       const names = new Set(listed.map((f) => fileKey(f)))
@@ -91,15 +90,15 @@ export default function ScreenBoard() {
       }
 
       const split = file.indexOf(":")
-      const group = split >= 0 ? file.slice(0, split) : "seen"
-      const name = split >= 0 ? file.slice(split + 1) : file
+      const group = file.slice(0, split)
+      const name = file.slice(split + 1)
       const resultsRes = await fetch(
         `/api/screen-results?group=${encodeURIComponent(group)}&file=${encodeURIComponent(name)}`,
       )
       if (gen !== loadGen.current) return
       if (!resultsRes.ok) throw new Error("results")
-      const data: { items?: ScreenItem[] } = await resultsRes.json()
-      const validItems = (Array.isArray(data.items) ? data.items : []).filter(isPlaced)
+      const data: { items: ScreenItem[] } = await resultsRes.json()
+      const validItems = data.items.filter(isPlaced)
       setItems(validItems)
       setOffline(false)
 
@@ -176,7 +175,7 @@ export default function ScreenBoard() {
       if (onlyStar && !stars.has(k)) continue
       if (q) {
         const blob = [it.company, it.job, it.reason, it.keyword, it.area, it.active]
-          .concat(it.keywords || [])
+          .concat(it.keywords)
           .join(" ")
           .toLowerCase()
         if (!blob.includes(q)) continue
@@ -276,29 +275,10 @@ export default function ScreenBoard() {
         return
       }
 
-      // 快捷键 1:保留, 2:待读, 3:AI, 4:规则
-      if (e.key === "1") {
+      const targetStation = STATIONS.find((s) => s.keyHint === e.key)
+      if (targetStation) {
         e.preventDefault()
-        setStation("keep")
-        setLane(null)
-        return
-      }
-      if (e.key === "2") {
-        e.preventDefault()
-        setStation("wait")
-        setLane(null)
-        return
-      }
-      if (e.key === "3") {
-        e.preventDefault()
-        setStation("ai")
-        setLane(null)
-        return
-      }
-      if (e.key === "4") {
-        e.preventDefault()
-        setStation("rule")
-        setLane(null)
+        onSelectStation(targetStation.id)
         return
       }
 
@@ -323,9 +303,9 @@ export default function ScreenBoard() {
 
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [onToggleStar])
+  }, [onToggleStar, onSelectStation])
 
-  const stationTitle = station === "keep" ? "保留" : station === "wait" ? "待读" : station === "ai" ? "AI" : "规则"
+  const stationTitle = STATIONS.find((s) => s.id === station)!.title
   const activeLaneObj = lanes.find((l) => l.id === lane)
 
   return (

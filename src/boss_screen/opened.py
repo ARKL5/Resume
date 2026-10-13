@@ -1,4 +1,4 @@
-"""已开聊。一行一个 encryptId。"""
+"""已开聊。一行一份 JSON，按 encryptId 去重。"""
 
 from __future__ import annotations
 
@@ -15,26 +15,16 @@ def load_ids(path: Path) -> set[str]:
         text = line.strip()
         if not text:
             continue
-        if text.startswith("{"):
-            try:
-                row = json.loads(text)
-            except json.JSONDecodeError:
-                continue
-            encrypt_id = str(row.get("encryptId") or "").strip()
-            if encrypt_id:
-                found.add(encrypt_id)
-            continue
-        found.add(text)
+        row = json.loads(text)
+        found.add(row["encryptId"])
     return found
 
 
-def append_opened(path: Path, encrypt_id: str, company: str = "", job: str = "") -> None:
+def append_opened(path: Path, encrypt_id: str) -> None:
     if not encrypt_id.strip():
         return
     row = {
         "encryptId": encrypt_id,
-        "company": company,
-        "job": job,
         "at": datetime.now(UTC).isoformat(),
     }
     path.parent.mkdir(parents=True, exist_ok=True)

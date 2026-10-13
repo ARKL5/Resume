@@ -1,6 +1,6 @@
 import { memo, useMemo, useState } from "react"
 import { itemReason } from "../reason"
-import { bossHref, jobKey, type ScreenItem } from "../types"
+import { activeClass, bossHref, jobKey, type ScreenItem } from "../types"
 
 type Props = {
   item: ScreenItem | null
@@ -8,13 +8,6 @@ type Props = {
   onToggleStar: (key: string) => void
   stationTitle: string
   laneTitle?: string
-}
-
-function activeClass(text?: string): string {
-  if (!text) return "act-none"
-  if (/刚刚|在线|今日|今天|[123]日|[123]天/.test(text)) return "act-hot"
-  if (/本周|周内|[4567]日|[4567]天|2周/.test(text)) return "act-mid"
-  return "act-cold"
 }
 
 // 瑞士风格关键词高亮识别器
@@ -120,11 +113,11 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
   const href = bossHref(item.href)
   const jobName = item.job || "（未命名岗位）"
   const company = item.company || "（未标明公司）"
-  const area = item.area?.trim()
+  const area = item.area.trim()
   const salary = item.salary?.trim()
-  const activeText = item.active?.trim()
+  const activeText = item.active.trim()
   const recruiter = item.recruiter?.trim()
-  const hasJd = Boolean(item.hasJd || (item.jd && String(item.jd).trim()))
+  const hasJd = Boolean(item.jd?.trim())
   const reason = itemReason(item)
   const actCls = activeClass(activeText)
 
@@ -211,7 +204,7 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
             ) : null}
           </div>
 
-          {item.keywords && item.keywords.length > 0 ? (
+          {item.keywords.length > 0 ? (
             <div className="swiss-keywords-bar">
               <span className="kw-head">KEYWORDS //</span>
               {item.keywords.map((kw) => (
@@ -277,7 +270,7 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
                     <span className={`row-code ${isRiskClean ? "" : "risk-code"}`}>01.4</span>
                     <span className="row-title">排雷研判与风险</span>
                   </div>
-                  <div className="row-body risk-content">{reason.modular.risk}</div>
+                  <div className="row-body risk-content">{reason.modular.risk || "未提供风险评语"}</div>
                 </div>
               </div>
             ) : reason.dropCategory ? (

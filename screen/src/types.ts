@@ -1,44 +1,54 @@
+import type { STATIONS } from "./constants"
+
+export type Stage =
+  | "rule_drop"
+  | "ai_title_drop"
+  | "ai_title_pending"
+  | "ai_jd_drop"
+  | "ai_jd_pending"
+  | "jd_wait"
+  | "jd_wait_other"
+  | "ai_keep"
+
 export type ScreenItem = {
-  encryptId?: string
-  company?: string
-  job?: string
-  keyword?: string
-  keywords?: string[]
-  area?: string
-  active?: string
+  encryptId: string
+  company: string
+  job: string
+  keyword: string
+  keywords: string[]
+  area: string
+  active: string
   salary?: string
-  href?: string
+  href: string
   jd?: string
-  hasJd?: boolean
-  stage?: string
-  reason?: string
-  cityPage?: string
+  stage: Stage
+  reason: string
+  cityPage: CityPage
   recruiter?: string
 }
 
 export type ScreenFile = {
   name: string
-  group?: "seen" | "archive"
-  keyword?: string
-  jobType?: string
-  startedAt?: string
-  rows?: number
-  mtime?: number
+  group: "seen" | "archive"
+  keyword: string
+  jobType: string
+  startedAt: string
+  rows: number
+  mtime: number
 }
 
 export function fileKey(file: ScreenFile): string {
-  const group = file.group === "archive" ? "archive" : "seen"
-  return `${group}:${file.name}`
+  return `${file.group}:${file.name}`
 }
 
 export function defaultScreenKey(files: ScreenFile[]): string | null {
-  const seen = files.find((file) => file.group !== "archive")
+  const seen = files.find((file) => file.group === "seen")
   return seen ? fileKey(seen) : null
 }
 
 export type CityPage = "杭州" | "上海" | "其它"
 
-export type StationId = "rule" | "ai" | "wait" | "keep"
+export type StationId = (typeof STATIONS)[number]["id"]
 
 export function defaultStation(items: ScreenItem[], city: CityPage): StationId {
   let hasWait = false
@@ -118,12 +128,17 @@ export function isPlaced(it: ScreenItem): boolean {
 }
 
 export function fileLabel(f: ScreenFile): string {
-  const bits = [f.keyword, f.jobType, f.startedAt].filter(Boolean)
-  const head = bits.length > 0 ? bits.join(" · ") : f.name
-  return typeof f.rows === "number" ? `${head} ${f.rows}` : head
+  return `${f.keyword} · ${f.jobType} · ${f.startedAt} ${f.rows}`
 }
 
-export function bossHref(href?: string): string {
+export function activeClass(text: string): string {
+  if (!text) return "act-none"
+  if (/刚刚|在线|今日|今天|[123]日|[123]天/.test(text)) return "act-hot"
+  if (/本周|周内|[4567]日|[4567]天|2周/.test(text)) return "act-mid"
+  return "act-cold"
+}
+
+export function bossHref(href: string): string {
   if (!href) return ""
   if (href.startsWith("http")) return href
   return `https://www.zhipin.com${href.startsWith("/") ? href : `/${href}`}`

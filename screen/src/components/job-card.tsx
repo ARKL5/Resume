@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef } from "react"
 import { itemReason } from "../reason"
-import { jobKey, type ScreenItem } from "../types"
+import { activeClass, jobKey, type ScreenItem } from "../types"
 
 type Props = {
   item: ScreenItem
@@ -11,21 +11,14 @@ type Props = {
   onToggleStar: (key: string) => void
 }
 
-function activeClass(text?: string): string {
-  if (!text) return "act-none"
-  if (/刚刚|在线|今日|今天|[123]日|[123]天/.test(text)) return "act-hot"
-  if (/本周|周内|[4567]日|[4567]天|2周/.test(text)) return "act-mid"
-  return "act-cold"
-}
-
 function JobCard({ item, index, isSelected, isStarred, onSelect, onToggleStar }: Props) {
   const cardRef = useRef<HTMLDivElement>(null)
   const key = jobKey(item)
   const jobName = item.job || "（未命名岗位）"
   const company = item.company || "（未标明公司）"
-  const area = item.area?.trim()
+  const area = item.area.trim()
   const salary = item.salary?.trim()
-  const activeText = item.active?.trim()
+  const activeText = item.active.trim()
   const reason = itemReason(item)
   const actCls = activeClass(activeText)
 

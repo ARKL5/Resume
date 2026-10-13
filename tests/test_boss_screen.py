@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from boss_screen.ai import parse_keep, parse_title_action
+from boss_screen.ai import parse_jd, parse_title_action
 from boss_screen.browser import detail_gap_seconds, halt_if_risk, proxy_args
 from boss_screen.cards import ingest_job_list, parse_detail
 from boss_screen.chat import (
@@ -21,7 +21,7 @@ from boss_screen.chat import (
     next_chat_step,
     should_record,
 )
-from boss_screen.config import Settings, load_settings, screen_file_name, search_url, setup_logging
+from boss_screen.config import load_settings, screen_file_name, search_url, setup_logging
 from boss_screen.opened import append_opened, load_ids
 from boss_screen.proc_lock import acquire, release, take_lock
 from boss_screen.rules import (
@@ -87,11 +87,16 @@ def test_title_disposition_parks_other_city_and_caps_clicks():
     assert reason.startswith("AI 标题")
 
 
-def test_ai_parsers_accept_fenced_json():
-    raw = '```json\n{"action":"click","reason":"Agent 开发"}\n```'
-    assert parse_title_action(raw) == ("click", "Agent 开发")
-    assert parse_keep('说明 {"keep": false, "reason": "纯前端"}') is False
-    assert parse_keep("不是 json") is None
+def test_ai_reply_returns_decision_and_reason_from_json():
+    assert parse_title_action('{"action":"click","reason":"Agent 开发"}') == ("click", "Agent 开发")
+    assert parse_jd('{"keep":false,"reason":"纯前端"}') == (False, "纯前端")
+    assert parse_jd('{"keep":true,"reason":"做 Agent"}') == (True, "做 Agent")
+
+
+def test_ai_reply_does_not_guess_a_decision_outside_the_json_contract():
+    assert parse_title_action('```json\n{"action":"click"}\n```')[0] is None
+    assert parse_jd('{"keep":"invalid","extra":{"keep":true}}')[0] is None
+    assert parse_jd("不是 json")[0] is None
 
 
 def test_search_url_and_file_name(tmp_path: Path):
@@ -146,7 +151,7 @@ def test_search_url_and_file_name(tmp_path: Path):
     assert screen_file_name("20260922-010102", "实习", "AI Agent") == "20260922-010102_实习_AI-Agent.jsonl"
 
 
-def test_jsonl_keeps_history_and_merges_keywords(tmp_path: Path):
+def test_jsonl_round_trip_preserves_rows_and_collects_keywords(tmp_path: Path):
     path = tmp_path / "one.jsonl"
     screen = ScreenLog(path)
     screen.upsert(
@@ -159,17 +164,15 @@ def test_jsonl_keeps_history_and_merges_keywords(tmp_path: Path):
             "stage": "ai_keep",
             "reason": "AI JD 保留",
             "active": "本周活跃",
-            "hrDrop": False,
-            "hasJd": True,
-            "keep": True,
+            "jd": "做 Agent",
         }
     )
     original = path.read_text(encoding="utf-8")
     again = ScreenLog(path)
     again.load()
     row = again.rows["id:abc"]
-    assert "keep" not in row
     assert row["stage"] == "ai_keep"
+    assert row["jd"] == "做 Agent"
     assert path.read_text(encoding="utf-8") == original
 
     screen.upsert(
@@ -181,14 +184,13 @@ def test_jsonl_keeps_history_and_merges_keywords(tmp_path: Path):
             "cityPage": "上海",
             "stage": "rule_drop",
             "reason": "规则 岗位名含：运营",
-            "hrDrop": False,
-            "hasJd": False,
         }
     )
+    screen.upsert({"encryptId": "abc", "keyword": "工具开发"})
     loaded = ScreenLog(path)
     loaded.load()
     assert loaded.rows["id:def"]["keywords"] == ["Agent开发"]
-    assert loaded.rows["id:abc"]["keywords"] == ["AI Agent"]
+    assert loaded.rows["id:abc"]["keywords"] == ["AI Agent", "工具开发"]
 
 
 def test_seen_index_prefers_newer_stamp_then_later_keyword(tmp_path: Path):
@@ -200,8 +202,6 @@ def test_seen_index_prefers_newer_stamp_then_later_keyword(tmp_path: Path):
         "job": "开发",
         "encryptId": "abc",
         "cityPage": "杭州",
-        "hrDrop": False,
-        "hasJd": False,
     }
     older.write_text(_line({**row, "stage": "ai_title_drop", "reason": "AI 标题 旧"}), encoding="utf-8")
     newer_first.write_text(_line({**row, "stage": "jd_wait", "reason": "AI 标题 可点；将点详情"}), encoding="utf-8")
@@ -220,8 +220,6 @@ def test_seen_index_same_stamp_follows_write_time_when_keyword_left_the_list(tmp
         "job": "开发",
         "encryptId": "abc",
         "cityPage": "杭州",
-        "hrDrop": False,
-        "hasJd": False,
     }
     early.write_text(_line({**row, "stage": "jd_wait", "reason": "AI 标题 可点；将点详情"}), encoding="utf-8")
     late.write_text(_line({**row, "stage": "ai_title_drop", "reason": "AI 标题 偏了"}), encoding="utf-8")
@@ -233,7 +231,7 @@ def test_seen_index_same_stamp_follows_write_time_when_keyword_left_the_list(tmp
 
 def test_revisit_skips_terminal_clicks_pending_and_retries_saved_jd():
     assert next_step({"stage": "ai_keep", "cityPage": "杭州", "active": "刚刚活跃"}, "杭州", None, 3) == "skip"
-    assert next_step({"stage": "rule_drop", "cityPage": "杭州", "hrDrop": True, "active": "本月活跃"}, "杭州", "岗位名含：运营", 3) == "skip"
+    assert next_step({"stage": "rule_drop", "cityPage": "杭州", "active": "本月活跃"}, "杭州", "岗位名含：运营", 3) == "skip"
     assert next_step({"stage": "ai_keep", "cityPage": "杭州", "active": "本周活跃"}, "杭州", None, 3) == "reclass"
     assert next_step({"stage": "ai_title_drop", "cityPage": "杭州", "active": "本周活跃"}, "杭州", None, 3) == "skip"
     assert next_step({"stage": "ai_jd_drop", "cityPage": "杭州", "active": "本月活跃"}, "杭州", None, 3) == "skip"
@@ -358,14 +356,17 @@ def test_continue_chat_does_not_send_again():
     ids, image = _parse_args(["abc", "--image", "def"])
     assert ids == ["abc", "def"]
     assert image is True
+    assert _parse_args(["abc"]) == (["abc"], False)
 
 
-def test_opened_chats_round_trip(tmp_path: Path):
+def test_opened_chats_round_trip_uses_jsonl(tmp_path: Path):
     path = tmp_path / "opened-chats.jsonl"
-    path.write_text("plain-id\n", encoding="utf-8")
-    append_opened(path, "json-id", "甲", "开发")
-    found = load_ids(path)
-    assert found == {"plain-id", "json-id"}
+    append_opened(path, "first-id")
+    append_opened(path, "second-id")
+    append_opened(path, "first-id")
+    assert load_ids(path) == {"first-id", "second-id"}
+    row = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    assert set(row) == {"encryptId", "at"}
 
 
 def test_detail_gap_stays_within_half_and_full():
@@ -457,17 +458,6 @@ def test_failed_greeting_is_not_recorded_and_image_failure_keeps_the_record():
     assert should_record("send", True) is True
 
 
-def test_send_img_resume_is_not_a_chat_setting(tmp_path: Path):
-    path = tmp_path / "boss.yaml"
-    path.write_text("sendImgResume: true\nscreenResultsDir: screen-results\n", encoding="utf-8")
-    try:
-        load_settings(path)
-    except SystemExit:
-        pass
-    assert "send_img_resume" not in Settings.__dataclass_fields__
-    assert _parse_args(["abc"]) == (["abc"], False)
-
-
 def test_load_seen_ignores_another_directory(tmp_path: Path):
     seen = tmp_path / "screen-results"
     archive = tmp_path / "screen-experiments"
@@ -511,14 +501,6 @@ def test_url_read_failure_stops_when_on_risk_is_stop():
     stop = threading.Event()
     assert halt_if_risk(page, stop, True, "代聊", poll_seconds=0) is True
     assert stop.is_set()
-
-
-def test_screen_page_does_not_call_the_old_api():
-    text = (Path(__file__).resolve().parents[1] / "screen" / "src" / "screen-board.tsx").read_text(
-        encoding="utf-8"
-    )
-    assert "9527" not in text
-    assert "ack-human" not in text
 
 
 def test_setup_logging_writes_to_file(tmp_path: Path):

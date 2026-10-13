@@ -39,7 +39,6 @@ class ScreenLog:
         if row is None:
             row = {}
         row.update(patch)
-        _strip_dead(row)
         keywords = list(row.get("keywords") or [])
         kw = str(patch.get("keyword") or "")
         if kw and kw not in keywords:
@@ -85,7 +84,6 @@ def read_rows(path: Path) -> list[dict]:
             continue
         if not isinstance(row, dict) or not is_placed_row(row):
             continue
-        _strip_dead(row)
         rows.append(row)
     return rows
 
@@ -104,9 +102,3 @@ def _split_screen_name(stem: str) -> tuple[str, str]:
     if len(parts) < 3:
         return stem, ""
     return parts[0], parts[2]
-
-
-def _strip_dead(row: dict) -> None:
-    row.pop("column", None)
-    row.pop("status", None)
-    row.pop("keep", None)

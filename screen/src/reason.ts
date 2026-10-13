@@ -56,13 +56,13 @@ export function parseReason(raw: string): ParsedReason {
   }
 
   let note: string | null = null
-  const noteMatch = remaining.match(/[；;]\s*(本轮详情上限|将点详情|工作地「.+?」，本轮不点详情|其它城不点.*)$/)
+  const noteMatch = remaining.match(/[；;]\s*(本轮详情上限|将点详情|工作地「.+?」，本轮不点详情)$/)
   if (noteMatch) {
     note = noteMatch[1].trim()
     remaining = remaining.slice(0, noteMatch.index).trim()
   }
 
-  // 1. 尝试匹配标准的四维评语规范：【职责与技术】...【对标与切入】...【公司背景】...【排雷风险】...
+  // 四维评语：【职责与技术】...【对标与切入】...【公司背景】...【排雷风险】...
   let modular: ModularKeep | null = null
   if (remaining.includes("【职责与技术】") || remaining.includes("【对标与切入】")) {
     const extract = (tag: string, nextTags: string[]): string => {
@@ -89,55 +89,21 @@ export function parseReason(raw: string): ParsedReason {
         dutyAndTech: duty,
         benchmark: bench,
         companyBg: comp,
-        risk: risk || "无明显硬伤",
+        risk,
       }
     }
   }
 
-  // 2. 尝试兼容早期非标准括号的旧版保留评语
-  if (!modular && phase === "JD" && (remaining.includes("候选人") || remaining.includes("匹配") || remaining.includes("风险"))) {
-    let riskPart = ""
-    let rest = remaining
-
-    const riskMatch = remaining.match(/((?:主要)?风险(?:是|为|在|：|:)\s*.*)$/)
-    if (riskMatch && riskMatch.index !== undefined) {
-      riskPart = riskMatch[1].replace(/^(?:主要)?风险(?:是|为|在|：|:)\s*/, "").trim()
-      rest = remaining.slice(0, riskMatch.index).trim()
-    }
-
-    const sentences = rest.split(/[。]/).map((s) => s.trim()).filter(Boolean)
-    let benchPart = ""
-    let compPart = ""
-    const dutySentences: string[] = []
-
-    for (const s of sentences) {
-      if (s.includes("候选人") || s.includes("匹配") || s.includes("契合") || s.includes("零售客服") || s.includes("RAG")) {
-        benchPart += (benchPart ? "。" : "") + s
-      } else if (s.startsWith("公司") || s.includes("融资") || s.includes("人、") || s.includes("规模") || s.includes("互联网")) {
-        compPart += (compPart ? "。" : "") + s
-      } else {
-        dutySentences.push(s)
-      }
-    }
-
-    modular = {
-      dutyAndTech: dutySentences.join("。") || rest,
-      benchmark: benchPart || "与候选人技术栈契合",
-      companyBg: compPart || "无详细背景信息",
-      risk: riskPart || "无明显硬伤",
-    }
-  }
-
-  // 3. 尝试匹配淘汰类别 【学历硬伤】/【假Agent纯前端】等
+  // 淘汰类别 【学历硬伤】/【假Agent纯前端】等
   let dropCategory: string | null = null
   let dropEvidence: string | null = null
-  const catMatch = remaining.match(/^(?:AI\s+)?【([^】]+)】(.*)$/)
+  const catMatch = remaining.match(/^【([^】]+)】(.*)$/)
   if (catMatch) {
     dropCategory = catMatch[1].trim()
     dropEvidence = catMatch[2].replace(/^[：:\s]+/, "").trim()
   }
 
-  // 4. 生成左侧列表高密度摘要
+  // 左侧列表摘要
   let summarySnippet = remaining
   if (modular) {
     summarySnippet = modular.benchmark || modular.dutyAndTech || remaining

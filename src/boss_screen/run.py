@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
-from boss_screen.ai import complete, jd_prompt, parse_keep, parse_reason, parse_title_action, title_prompt
+from boss_screen.ai import complete, jd_prompt, parse_jd, parse_title_action, title_prompt
 from boss_screen.browser import detail_gap_seconds, fresh_page, halt_if_risk, needs_human, open_chrome, sleep_until
 from boss_screen.cards import Card, ingest_job_list, overlay, parse_detail
 from boss_screen.config import Settings, load_settings, screen_file_name, search_url, setup_logging
@@ -260,12 +260,10 @@ class Session:
                 judged = with_stored_hr_drop(prior or {})
                 stored_active = str((prior or {}).get("active") or "")
                 ruled = card.with_active(stored_active) if stored_active else card
-                self._write_card(keyword, ruled, "rule_drop", str(judged.get("reason") or ""), True)
+                self._write_card(keyword, ruled, "rule_drop", str(judged.get("reason") or ""))
                 continue
             if step == "rule":
-                self._write_card(
-                    keyword, card, "rule_drop", rule_reason(list_rule), bool(list_rule and list_rule.startswith("HR未近3天"))
-                )
+                self._write_card(keyword, card, "rule_drop", rule_reason(list_rule))
                 continue
             if step == "click":
                 direct.append(card)
@@ -282,7 +280,7 @@ class Session:
             if self.stop.is_set():
                 return
             stage, labeled, click = title_disposition(action, reason, classify_city(card.area), remaining)
-            self._write_card(keyword, card, stage, labeled, False)
+            self._write_card(keyword, card, stage, labeled)
             if click:
                 worth.append(card)
                 remaining -= 1
@@ -376,14 +374,14 @@ class Session:
                 hr_text = job["active"] or card.active or ""
                 if hr_text.strip() and not is_active_within_3_days(hr_text):
                     self._write_job(
-                        keyword, job, city, "rule_drop", rule_reason("HR未近3天活跃：" + hr_text.strip()), hr_text, True
+                        keyword, job, city, "rule_drop", rule_reason("HR未近3天活跃：" + hr_text.strip()), hr_text
                     )
                     continue
                 recruiter_rule = recruiter_drop_reason(
                     job["recruiterTitle"], job["recruiter"], self.settings.black_recruiters
                 )
                 if recruiter_rule:
-                    self._write_job(keyword, job, city, "rule_drop", rule_reason(recruiter_rule), hr_text, False)
+                    self._write_job(keyword, job, city, "rule_drop", rule_reason(recruiter_rule), hr_text)
                     continue
                 futures.append(pool.submit(self._screen_job, keyword, job, city, hr_text))
                 if self._halt("Boss 弹出人机验证或登录页。"):
@@ -455,22 +453,18 @@ class Session:
             raw = complete(self.settings, jd_prompt(self.settings, keyword, job))
         except Exception as exc:
             log.warning("AI筛选失败 | %s | %s | %s", job["company"], job["job"], exc)
-            self._write_job(keyword, job, city, "ai_jd_pending", ai_fail_reason("JD", str(exc)), hr_text, False)
+            self._write_job(keyword, job, city, "ai_jd_pending", ai_fail_reason("JD", str(exc)), hr_text)
             return
-        keep = parse_keep(raw)
-        reason = parse_reason(raw)
+        keep, reason = parse_jd(raw)
         if keep is None:
-            self._write_job(keyword, job, city, "ai_jd_pending", ai_fail_reason("JD", reason), hr_text, False)
+            self._write_job(keyword, job, city, "ai_jd_pending", ai_fail_reason("JD", reason), hr_text)
             return
         stage = "ai_keep" if keep else "ai_jd_drop"
         labeled = ai_jd_reason(reason)
         log.info("%s | %s | %s | %s", stage, job["company"], job["job"], labeled)
-        self._write_job(keyword, job, city, stage, labeled, hr_text, False)
+        self._write_job(keyword, job, city, stage, labeled, hr_text)
 
-    def _write_job(
-        self, keyword: str, job: dict, city: str, stage: str, reason: str, hr_text: str, hr_drop: bool
-    ) -> None:
-        jd = job.get("jd") or ""
+    def _write_job(self, keyword: str, job: dict, city: str, stage: str, reason: str, hr_text: str) -> None:
         self._upsert(
             {
                 "keyword": keyword,
@@ -482,12 +476,10 @@ class Session:
                 "active": hr_text or "",
                 "href": job.get("href") or "",
                 "encryptId": job.get("encryptId") or "",
-                "jd": jd,
+                "jd": job.get("jd") or "",
                 "cityPage": city,
                 "stage": stage,
                 "reason": reason.strip() or "未写明",
-                "hrDrop": hr_drop,
-                "hasJd": bool(str(jd).strip()),
             }
         )
 
@@ -560,7 +552,7 @@ class Session:
             existing = harvested.get(key)
             harvested[key] = extra if existing is None else overlay(existing, extra)
 
-    def _write_card(self, keyword: str, card: Card, stage: str, reason: str, hr_drop: bool) -> None:
+    def _write_card(self, keyword: str, card: Card, stage: str, reason: str) -> None:
         self._upsert(
             {
                 "keyword": keyword,
@@ -573,8 +565,6 @@ class Session:
                 "cityPage": classify_city(card.area),
                 "stage": stage,
                 "reason": reason.strip() or "未写明",
-                "hrDrop": hr_drop,
-                "hasJd": False,
             }
         )
         log.info("%s | %s | %s | %s", stage, card.company, card.job, reason)
