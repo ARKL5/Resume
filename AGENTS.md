@@ -1,18 +1,24 @@
 # Project
 
-个人求职投递件与投递进度维护。
+Boss 岗位筛选与代聊，外加只读对照页。
 
 ## Required reading
 
-**Engineering standards**（改代码或设计之前，以及审查时）：[`docs/agents/engineering-standards.md`](docs/agents/engineering-standards.md)
-
 **Glossary**（用到或改领域词时）：[`CONTEXT.md`](CONTEXT.md)
 
-**ADRs**（动到哪一块，就读那一块）：[`docs/adr/`](docs/adr/)
+**ADRs**（动到哪一块，就读哪一块）：[`docs/adr/`](docs/adr/)
+
+## Standards
+
+- **Follow the surroundings.** Follow project conventions and explain necessary departures.
+- **Complete the task.** Deliver the requested behaviour and relevant failure paths.
+- **Replace outright.** A change leaves one way to do the thing. Callers and tests move with that way.
+- **Test behaviour.** Derive assertions from requirements, contracts, or defects. For fixes, show the regression fails on the bug where practical. Name tests by scenario and expected result.
+- **Automate deterministic rules.** Use lint, types, and tests. Keep their configuration in tools, not in this file.
+- **Boundary.** The screening runtime lives at the repo root in `src/boss_screen/`. The workbench only changes `screen/`, and reads the repo-root `boss.yaml` itself. This repo screens Boss postings and chats on demand; not a hiring platform, not a business backend.
+- **Personal tool.** Do not publish. Prefer one less choice, mode, or field. The owner being able to read and change it beats foolproofing and automatic tracking.
 
 ## Verification
-
-投递件：`uv run .agents/skills/qiaomu-campus-resume/scripts/validate_resume.py resume/resume-data-agent.json`，校招件把路径换成 `resume/resume-data-campus.json`。只查 JSON 结构，不含 PDF。声称渲染完成时再按渲染 skill 出 PDF。
 
 对照页：`cd screen && pnpm test && pnpm run build`。测试覆盖数据脚本，构建覆盖类型检查与打包。
 
