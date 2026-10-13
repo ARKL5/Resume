@@ -100,14 +100,10 @@ def recruiter_drop_reason(
     token = first_token(recruiter_title, list(RECRUITER_TOKENS))
     if token:
         return f"招聘者含：{token}"
-    if not black_recruiters:
-        return None
     for raw in (recruiter_title, recruiter_name):
-        if not raw or not raw.strip():
-            continue
-        if any(item and item in raw for item in black_recruiters):
-            term = _matched_term(black_recruiters, raw)
-            return "招聘者黑名单命中" + (f"：{term}" if term else "")
+        term = _matched_term(black_recruiters, raw)
+        if term:
+            return f"招聘者黑名单命中：{term}"
     return None
 
 
@@ -126,12 +122,12 @@ def rule_drop_reason(
 ) -> str | None:
     if has_hr_active_copy(active) and not is_active_within_3_days(active):
         return "HR未近3天活跃：" + (active or "").strip()
-    if job_name and black_jobs and any(item and item in job_name for item in black_jobs):
-        term = _matched_term(black_jobs, job_name)
-        return "职位黑名单命中" + (f"：{term}" if term else "")
-    if company and black_companies and any(item and item in company for item in black_companies):
-        term = _matched_term(black_companies, company)
-        return "公司黑名单命中" + (f"：{term}" if term else "")
+    term = _matched_term(black_jobs, job_name)
+    if term:
+        return f"职位黑名单命中：{term}"
+    term = _matched_term(black_companies, company)
+    if term:
+        return f"公司黑名单命中：{term}"
     company_token = first_token(company, company_tokens)
     if company_token:
         return f"公司名含：{company_token}"
@@ -226,26 +222,22 @@ def is_pending_click(reason: str | None) -> bool:
     return "将点详情" in text or "详情上限" in text
 
 
-def with_stored_hr_drop(row: dict) -> dict:
-    """保留上已存的活跃文案不是近 3 天时，内存里改判为规则淘汰。不写文件。"""
+def stored_hr_drop_reason(row: dict) -> str | None:
+    """已保留岗位的活跃文案需要改判时返回停因，不修改岗位。"""
     if row.get("stage") != "ai_keep":
-        return row
+        return None
     active = str(row.get("active") or "")
-    if not (has_hr_active_copy(active) and not is_active_within_3_days(active)):
-        return row
-    copied = dict(row)
-    copied["stage"] = "rule_drop"
-    copied["reason"] = rule_reason("HR未近3天活跃：" + active.strip())
-    return copied
+    if has_hr_active_copy(active) and not is_active_within_3_days(active):
+        return rule_reason("HR未近3天活跃：" + active.strip())
+    return None
 
 
 def next_step(row: dict | None, city_page: str, list_rule: str | None, remaining: int) -> str:
     """再次出现时的下一步：skip、reclass、rule、title、click、jd、leave。"""
     if row is not None:
-        judged = with_stored_hr_drop(row)
-        if judged is not row and str(judged.get("stage") or "") == "rule_drop":
+        if stored_hr_drop_reason(row):
             return "reclass"
-        if str(judged.get("stage") or "") in TERMINAL_STAGES:
+        if row.get("stage") in TERMINAL_STAGES:
             return "skip"
     if list_rule:
         return "rule"
@@ -265,10 +257,6 @@ def next_step(row: dict | None, city_page: str, list_rule: str | None, remaining
     if stage == "jd_wait":
         return "leave"
     return "title"
-
-
-def jd_retry_city(job: dict) -> str:
-    return classify_city(str(job.get("area") or ""))
 
 
 def saved_jd_job(

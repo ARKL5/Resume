@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 YAML_PATH = REPO_ROOT / "boss.yaml"
 
 
-def setup_logging(log_file: Path | None) -> Path | None:
+def setup_logging(log_file: Path | None) -> None:
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
 
     stream_handler = logging.StreamHandler()
@@ -31,8 +31,6 @@ def setup_logging(log_file: Path | None) -> Path | None:
         file_handler = logging.FileHandler(str(log_file), encoding="utf-8")
         file_handler.setFormatter(formatter)
         root.addHandler(file_handler)
-
-    return log_file
 
 
 @dataclass(frozen=True)
@@ -188,13 +186,12 @@ def _parse_log_file(root: Path, screen_raw: str, log_raw: object) -> Path | None
     return None
 
 
-def _strings(value) -> list[str]:
-    if not value:
+def _strings(value: list[str] | None) -> list[str]:
+    if value is None:
         return []
-    if isinstance(value, str):
-        text = value.strip()
-        return [text] if text else []
-    return [str(item).strip() for item in value if str(item).strip()]
+    if not isinstance(value, list):
+        raise SystemExit("boss.yaml 的名单须用列表")
+    return [item.strip() for item in value if item.strip()]
 
 
 def _code(codes: dict, kind: str, name: str) -> str:
@@ -204,9 +201,6 @@ def _code(codes: dict, kind: str, name: str) -> str:
     code = table.get(name)
     if isinstance(code, str) and code.strip():
         return code.strip()
-    for existing in table.values():
-        if name == str(existing):
-            return name
     raise SystemExit(f"boss.yaml 的 {kind} 无法对应 Boss 选项: {name}")
 
 

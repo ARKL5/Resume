@@ -11,9 +11,9 @@ import {
 
 type Props = {
   files: ScreenFile[]
-  selectedFile: string | null
+  selectedFile: ScreenFile | null
   offline: boolean
-  onSelectFile: (fileKey: string) => void
+  onSelectFile: (file: ScreenFile) => void
   city: CityPage
   onSelectCity: (city: CityPage) => void
   cityCounts: Record<CityPage, number>
@@ -61,8 +61,11 @@ function TopBar({
           <div className="swiss-file-picker">
             <select
               className="swiss-select"
-              value={selectedFile ?? ""}
-              onChange={(e) => onSelectFile(e.target.value)}
+              value={selectedFile ? fileKey(selectedFile) : ""}
+              onChange={(e) => {
+                const file = files.find((f) => fileKey(f) === e.target.value)
+                if (file) onSelectFile(file)
+              }}
               title="切换筛选结果文件"
             >
               {files.map((f) => {

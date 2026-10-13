@@ -13,7 +13,6 @@ export type ModularKeep = {
 export type ParsedReason = {
   kind: ReasonKind
   phase: ReasonPhase
-  raw: string
   body: string
   note: string | null
   modular: ModularKeep | null
@@ -28,7 +27,6 @@ export function parseReason(raw: string): ParsedReason {
     return {
       kind: null,
       phase: null,
-      raw: "",
       body: "未写明",
       note: null,
       modular: null,
@@ -114,7 +112,6 @@ export function parseReason(raw: string): ParsedReason {
   return {
     kind,
     phase,
-    raw: text,
     body: remaining || "无理由",
     note,
     modular,

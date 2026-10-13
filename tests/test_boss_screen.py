@@ -28,10 +28,10 @@ from boss_screen.rules import (
     classify_city,
     contains_job_token,
     is_active_within_3_days,
-    jd_retry_city,
     next_step,
     rule_drop_reason,
     saved_jd_job,
+    stored_hr_drop_reason,
     title_disposition,
 )
 from boss_screen.store import ScreenLog, load_seen
@@ -63,6 +63,20 @@ def test_list_rule_drops_job_token_and_inactive_hr():
     assert rule_drop_reason("Agent", "华为", "", "猎头", "", **kwargs) == "招聘者含：猎头"
     assert rule_drop_reason("Agent", "华为", "刚刚活跃", "", "", **kwargs) is None
     assert is_active_within_3_days("") is False
+
+
+def test_blacklist_reason_uses_the_first_matching_term():
+    kwargs = {
+        "black_jobs": ["Agent", "开发"],
+        "black_companies": ["甲", "公司"],
+        "black_recruiters": ["李", "负责人"],
+        "company_tokens": [],
+        "job_tokens": [],
+    }
+    assert rule_drop_reason("Agent 开发", "乙", "", "", "", **kwargs) == "职位黑名单命中：Agent"
+    assert rule_drop_reason("后端", "甲公司", "", "", "", **kwargs) == "公司黑名单命中：甲"
+    assert rule_drop_reason("后端", "乙", "", "技术负责人", "李", **kwargs) == "招聘者黑名单命中：负责人"
+    assert rule_drop_reason("后端", "乙", "", "工程师", "李", **kwargs) == "招聘者黑名单命中：李"
 
 
 def test_title_disposition_parks_other_city_and_caps_clicks():
@@ -149,6 +163,25 @@ def test_search_url_and_file_name(tmp_path: Path):
     assert "degree=203" in url
     assert "industry=" not in url
     assert screen_file_name("20260922-010102", "实习", "AI Agent") == "20260922-010102_实习_AI-Agent.jsonl"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [("keywords", "AI Agent", "名单须用列表"), ("cities", ["101210100"], "无法对应 Boss 选项")],
+)
+def test_config_requires_lists_and_named_options(tmp_path: Path, field: str, value, message: str):
+    data = {
+        "keywords": ["AI Agent"],
+        "cities": ["杭州"],
+        "ai": {"baseUrl": "http://127.0.0.1/v1", "apiKey": "k", "model": "m"},
+        "prompts": {"title": "t", "jd": "j"},
+        "codes": {"city": {"杭州": "101210100"}},
+    }
+    data[field] = value
+    path = tmp_path / "boss.yaml"
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(SystemExit, match=message):
+        load_settings(path)
 
 
 def test_jsonl_round_trip_preserves_rows_and_collects_keywords(tmp_path: Path):
@@ -257,6 +290,15 @@ def test_revisit_skips_terminal_clicks_pending_and_retries_saved_jd():
     assert next_step(other, "上海", None, 3) == "title"
 
 
+def test_stored_inactive_hr_returns_a_reason_without_changing_the_saved_row():
+    row = {"stage": "ai_keep", "active": "本周活跃", "reason": "AI JD 做 Agent"}
+    original = dict(row)
+    assert stored_hr_drop_reason(row) == "规则 HR未近3天活跃：本周活跃"
+    assert row == original
+    assert stored_hr_drop_reason({"stage": "ai_keep", "active": "刚刚活跃"}) is None
+    assert stored_hr_drop_reason({"stage": "ai_jd_drop", "active": "本周活跃"}) is None
+
+
 def test_saved_jd_retry_omits_fields_that_are_not_stored():
     job = saved_jd_job(
         {
@@ -293,7 +335,7 @@ def test_saved_jd_retry_omits_fields_that_are_not_stored():
         href="",
         encrypt_id="abc",
     )
-    assert jd_retry_city(stored_area) == "上海"
+    assert classify_city(stored_area["area"]) == "上海"
 
 
 def _line(row: dict) -> str:
@@ -505,18 +547,17 @@ def test_url_read_failure_stops_when_on_risk_is_stop():
 
 def test_setup_logging_writes_to_file(tmp_path: Path):
     target = tmp_path / "custom.log"
-    log_file = setup_logging(target)
-    assert log_file == target
-    assert log_file is not None
+    setup_logging(target)
     test_log = logging.getLogger("boss_screen")
     test_log.info("测试写入运行日志")
     for handler in logging.getLogger().handlers:
         handler.flush()
-    content = log_file.read_text(encoding="utf-8")
+    content = target.read_text(encoding="utf-8")
     assert "测试写入运行日志" in content
 
     # 当 log_file 为 None 时只打控制台，不报错
-    assert setup_logging(None) is None
+    setup_logging(None)
+    assert not any(isinstance(handler, logging.FileHandler) for handler in logging.getLogger().handlers)
 
 
 def test_load_settings_log_file_options(tmp_path: Path):

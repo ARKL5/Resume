@@ -8,7 +8,7 @@ import DetailInspector from "./components/detail-inspector"
 import {
   bossHref,
   cityOf,
-  defaultScreenKey,
+  defaultScreenFile,
   defaultStation,
   fileKey,
   isPlaced,
@@ -36,76 +36,44 @@ function getUrlParams() {
 }
 
 export default function ScreenBoard() {
-  const initialParams = useRef(getUrlParams())
+  const [initialParams] = useState(getUrlParams)
 
   const [items, setItems] = useState<ScreenItem[]>([])
   const [files, setFiles] = useState<ScreenFile[]>([])
-  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<ScreenFile | null>(null)
   const [offline, setOffline] = useState(false)
 
   const [city, setCity] = useState<CityPage>("杭州")
-  const [station, setStation] = useState<StationId>(() => initialParams.current.station || "keep")
+  const [station, setStation] = useState<StationId>(() => initialParams.station || "keep")
   const [lane, setLane] = useState<LaneId | null>(null)
-  const [query, setQuery] = useState(() => initialParams.current.query)
+  const [query, setQuery] = useState(initialParams.query)
   const [onlyStar, setOnlyStar] = useState(false)
   const [stars, setStars] = useState<Set<string>>(() => new Set())
   const [selectedIndex, setSelectedIndex] = useState(0)
 
-  const selectedRef = useRef<string | null>(null)
   const cityRef = useRef(city)
   cityRef.current = city
   const loadGen = useRef(0)
-  const isInitialStationSet = useRef(Boolean(initialParams.current.station))
   const deferredQuery = useDeferredValue(query)
 
-  // 1. 数据加载（不使用定时轮询打断对照与滚动，符合 ADR 0002）
-  const load = useCallback(async (want?: string | null) => {
+  // 1. 读取选中文件；文件列表只在打开页面时读取，不定时刷新（ADR 0002）。
+  const loadResults = useCallback(async (file: ScreenFile, preferredStation?: StationId | null) => {
     const gen = ++loadGen.current
+    setSelectedFile(file)
+    setItems([])
+    setLane(null)
+    setSelectedIndex(0)
     try {
-      const filesRes = await fetch("/api/screen-files")
+      const params = new URLSearchParams({ group: file.group, file: file.name })
+      const response = await fetch(`/api/screen-results?${params}`)
+      if (!response.ok) throw new Error("results")
+      const data: { items: ScreenItem[] } = await response.json()
       if (gen !== loadGen.current) return
-      if (!filesRes.ok) throw new Error("files")
-      const body: { files: ScreenFile[] } = await filesRes.json()
-      const listed = body.files
-      setFiles(listed)
-
-      const names = new Set(listed.map((f) => fileKey(f)))
-      const initialKey = initialParams.current.urlKey
-
-      let file = want !== undefined ? want : selectedRef.current || (initialKey && names.has(initialKey) ? initialKey : null)
-      if (!file || !names.has(file)) {
-        file = defaultScreenKey(listed)
-        selectedRef.current = file
-        setSelectedFile(file)
-        setSelectedIndex(0)
-      } else if (!selectedRef.current) {
-        selectedRef.current = file
-        setSelectedFile(file)
-      }
-
-      if (!file) {
-        setItems([])
-        setOffline(false)
-        return
-      }
-
-      const split = file.indexOf(":")
-      const group = file.slice(0, split)
-      const name = file.slice(split + 1)
-      const resultsRes = await fetch(
-        `/api/screen-results?group=${encodeURIComponent(group)}&file=${encodeURIComponent(name)}`,
-      )
-      if (gen !== loadGen.current) return
-      if (!resultsRes.ok) throw new Error("results")
-      const data: { items: ScreenItem[] } = await resultsRes.json()
       const validItems = data.items.filter(isPlaced)
       setItems(validItems)
       setOffline(false)
-
-      // 首次加载或切换文件时，按决策优先规则选定默认停驻（保留 > 待读 > AI > 规则）
-      if (!isInitialStationSet.current && validItems.length > 0) {
-        isInitialStationSet.current = true
-        setStation(defaultStation(validItems, cityRef.current))
+      if (validItems.length > 0) {
+        setStation(preferredStation ?? defaultStation(validItems, cityRef.current))
       }
     } catch {
       if (gen !== loadGen.current) return
@@ -114,9 +82,26 @@ export default function ScreenBoard() {
   }, [])
 
   useEffect(() => {
+    let active = true
     setStars(loadStars())
-    void load()
-  }, [load])
+    async function loadFiles() {
+      try {
+        const response = await fetch("/api/screen-files")
+        if (!response.ok) throw new Error("files")
+        const body: { files: ScreenFile[] } = await response.json()
+        if (!active) return
+        setFiles(body.files)
+        const file = body.files.find((f) => fileKey(f) === initialParams.urlKey) ?? defaultScreenFile(body.files)
+        if (file) await loadResults(file, initialParams.station)
+      } catch {
+        if (active) setOffline(true)
+      }
+    }
+    void loadFiles()
+    return () => {
+      active = false
+    }
+  }, [initialParams, loadResults])
 
   // 2. 圈岗操作
   const onToggleStar = useCallback((key: string) => {
@@ -129,15 +114,6 @@ export default function ScreenBoard() {
     })
   }, [])
 
-  const onSelectFile = useCallback((k: string) => {
-    selectedRef.current = k
-    setSelectedFile(k)
-    setLane(null)
-    isInitialStationSet.current = false
-    setSelectedIndex(0)
-    void load(k)
-  }, [load])
-
   const onSelectCity = useCallback((c: CityPage) => {
     setCity(c)
     setLane(null)
@@ -146,10 +122,6 @@ export default function ScreenBoard() {
   const onSelectStation = useCallback((s: StationId) => {
     setStation(s)
     setLane(null)
-  }, [])
-
-  const onSelectLane = useCallback((l: LaneId | null) => {
-    setLane(l)
   }, [])
 
   const onToggleOnlyStar = useCallback(() => {
@@ -314,7 +286,7 @@ export default function ScreenBoard() {
         files={files}
         selectedFile={selectedFile}
         offline={offline}
-        onSelectFile={onSelectFile}
+        onSelectFile={loadResults}
         city={city}
         onSelectCity={onSelectCity}
         cityCounts={cityCounts}
@@ -323,7 +295,7 @@ export default function ScreenBoard() {
         stationCounts={stationCounts}
         lanes={lanes}
         lane={lane}
-        onSelectLane={onSelectLane}
+        onSelectLane={setLane}
         laneCounts={laneCounts}
         query={query}
         onQueryChange={setQuery}

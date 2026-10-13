@@ -23,16 +23,15 @@ from boss_screen.rules import (
     extract_encrypt_id,
     is_active_within_3_days,
     is_search_city,
-    jd_retry_city,
     next_step,
     recruiter_drop_reason,
     row_key,
     rule_drop_reason,
     rule_reason,
     saved_jd_job,
+    stored_hr_drop_reason,
     title_disposition,
     valid_encrypt_id,
-    with_stored_hr_drop,
 )
 from boss_screen.store import ScreenLog, load_seen
 
@@ -257,10 +256,11 @@ class Session:
             if step == "skip" or step == "leave":
                 continue
             if step == "reclass":
-                judged = with_stored_hr_drop(prior or {})
-                stored_active = str((prior or {}).get("active") or "")
-                ruled = card.with_active(stored_active) if stored_active else card
-                self._write_card(keyword, ruled, "rule_drop", str(judged.get("reason") or ""))
+                assert prior is not None
+                reason = stored_hr_drop_reason(prior)
+                assert reason is not None
+                stored_active = str(prior.get("active") or "")
+                self._write_card(keyword, card.with_active(stored_active), "rule_drop", reason)
                 continue
             if step == "rule":
                 self._write_card(keyword, card, "rule_drop", rule_reason(list_rule))
@@ -304,7 +304,7 @@ class Session:
                 href=card.href,
                 encrypt_id=card.encrypt_id,
             )
-            self._screen_job(keyword, job, jd_retry_city(job), str(row.get("active") or ""))
+            self._screen_job(keyword, job, classify_city(job["area"]), str(row.get("active") or ""))
 
         with ThreadPoolExecutor(max_workers=AI_PARALLELISM) as pool:
             futures = [pool.submit(one, pair) for pair in pairs]

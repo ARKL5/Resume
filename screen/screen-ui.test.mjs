@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { STATIONS } from "./src/constants.ts"
 import { parseReason } from "./src/reason.ts"
-import { activeClass, defaultScreenKey, fileKey, fileLabel } from "./src/types.ts"
+import { activeClass, defaultScreenFile, fileKey, fileLabel } from "./src/types.ts"
 
 test("station names and shortcuts share one definition", () => {
   assert.deepEqual(STATIONS.map(({ id, title, keyHint }) => [id, title, keyHint]), [
@@ -26,7 +26,8 @@ test("file keys include the group and the default file belongs to seen", () => {
   const experiment = { ...file, group: "archive" }
   assert.equal(fileKey(file), `seen:${file.name}`)
   assert.equal(fileKey(experiment), `archive:${file.name}`)
-  assert.equal(defaultScreenKey([experiment, file]), fileKey(file))
+  assert.equal(defaultScreenFile([experiment, file]), file)
+  assert.equal(defaultScreenFile([experiment]), null)
   assert.equal(fileLabel(file), "AI Agent · 实习 · 20260922-010101 5")
 })
 

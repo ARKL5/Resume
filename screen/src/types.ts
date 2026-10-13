@@ -41,9 +41,8 @@ export function fileKey(file: ScreenFile): string {
   return `${file.group}:${file.name}`
 }
 
-export function defaultScreenKey(files: ScreenFile[]): string | null {
-  const seen = files.find((file) => file.group === "seen")
-  return seen ? fileKey(seen) : null
+export function defaultScreenFile(files: ScreenFile[]): ScreenFile | null {
+  return files.find((file) => file.group === "seen") ?? null
 }
 
 export type CityPage = "杭州" | "上海" | "其它"
