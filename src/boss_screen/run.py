@@ -335,7 +335,7 @@ class Session:
         if not cards:
             return
         try:
-            self.page.evaluate("window.scrollTo({ top: 0, behavior: 'smooth' });")
+            self.page.evaluate("window.scrollTo(0, 0)")
             self._sleep(random.uniform(1.0, 1.8))
         except Exception:
             pass
@@ -353,12 +353,18 @@ class Session:
                 if target is None:
                     log.warning("找不到岗位ID对应卡片，保持待读 | %s", card.encrypt_id)
                     continue
-                try:
-                    with self.page.expect_response(_is_detail, timeout=15_000) as waited:
-                        self._human_click(target)
-                    body = waited.value.text()
-                except Exception:
-                    if self._halt("Boss 点详情时弹出验证。"):
+                body = None
+                for _attempt in range(2):
+                    try:
+                        with self.page.expect_response(_is_detail, timeout=15_000) as waited:
+                            self._human_click(target)
+                        body = waited.value.text()
+                        break
+                    except Exception:
+                        if self._halt("Boss 点详情时弹出验证。"):
+                            break
+                if body is None:
+                    if self.stop.is_set():
                         break
                     log.warning("等待岗位详情超时 | %s | %s", card.company, card.job)
                     continue
@@ -633,7 +639,7 @@ class Session:
                 self.page.mouse.wheel(0, delta)
                 self._sleep(random.uniform(0.4, 0.7))
 
-            self.page.evaluate("window.scrollTo({ top: 0, behavior: 'smooth' });")
+            self.page.evaluate("window.scrollTo(0, 0)")
             self._sleep(random.uniform(1.0, 1.5))
             for _ in range(30):
                 if self._halt("Boss 找卡片时弹出人机验证或登录。"):
