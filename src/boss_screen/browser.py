@@ -41,6 +41,7 @@ def open_chrome(user_data: Path):
             "--hide-crash-restore-bubble",
             "--no-first-run",
             "--no-default-browser-check",
+            "--remote-debugging-port=9222",
             *proxy_args(),
         ],
     )

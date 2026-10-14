@@ -427,11 +427,14 @@ def test_second_process_cannot_take_the_lock(tmp_path: Path):
 
 
 def test_take_lock_refuses_when_held(tmp_path: Path):
-    held = acquire(tmp_path / "run.lock")
+    lock_file = tmp_path / "run.lock"
+    held = acquire(lock_file)
     try:
+        assert lock_file.read_text(encoding="ascii").strip() == str(os.getpid())
         with pytest.raises(SystemExit) as caught:
-            take_lock(tmp_path / "run.lock")
+            take_lock(lock_file)
         assert caught.value.code == 1
+        assert lock_file.read_text(encoding="ascii").strip() == str(os.getpid())
     finally:
         release(held)
 

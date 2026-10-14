@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import logging
+import os
 from pathlib import Path
 
 from boss_screen.config import REPO_ROOT
@@ -24,6 +25,10 @@ def acquire(path: Path):
             handle.flush()
         handle.seek(0)
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        handle.seek(0)
+        handle.truncate(0)
+        handle.write(f"{os.getpid()}\n".encode("ascii"))
+        handle.flush()
     except OSError:
         handle.close()
         return None
