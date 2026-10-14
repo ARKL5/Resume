@@ -48,14 +48,13 @@ function TopBar({
       <div className="topbar-row-primary">
         {/* 报头与单库状态 */}
         <div className="topbar-masthead">
-          <span className="masthead-brand">SWISS // SCREEN</span>
           <button
             type="button"
             className="swiss-tool-btn"
             onClick={onRefresh}
             title="从 SQLite 刷新最新流式结果 (快捷键 r)"
           >
-            <span>DB // {totalCount} 岗</span>
+            <span>{totalCount} 岗</span>
             <span className="tool-count">[刷新 r]</span>
           </button>
           {offline ? <span className="swiss-offline-flag">OFFLINE</span> : null}
@@ -64,7 +63,7 @@ function TopBar({
         {/* 城市分页 (01 杭州, 02 上海, 03 其它) */}
         <div className="topbar-city-group">
           <div className="swiss-segment-group">
-            {CITY_PAGES.map((c, idx) => {
+            {CITY_PAGES.map((c) => {
               const active = city === c
               const count = cityCounts[c] ?? 0
               return (
@@ -74,7 +73,6 @@ function TopBar({
                   className={`swiss-segment-btn ${active ? "is-active" : ""}`}
                   onClick={() => onSelectCity(c)}
                 >
-                  <span className="seg-num">0{idx + 1}</span>
                   <span className="seg-label">{c}</span>
                   <span className="seg-count">[{count}]</span>
                 </button>
@@ -117,13 +115,12 @@ function TopBar({
         </button>
 
         <div className="swiss-search-wrap">
-          <span className="search-prefix">//</span>
           <input
             type="text"
             className="swiss-search-input"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="FILTER // 检索岗位/公司/停因..."
+            placeholder="检索岗位、公司或停因"
           />
           {query ? (
             <button
@@ -141,14 +138,13 @@ function TopBar({
       {/* 二级切片细分条 */}
       {lanes.length > 0 ? (
         <div className="topbar-row-lanes">
-          <span className="lanes-prefix">SUB-LANE //</span>
           <div className="lanes-button-group">
             <button
               type="button"
               className={`swiss-lane-chip ${lane === null ? "is-active" : ""}`}
               onClick={() => onSelectLane(null)}
             >
-              ALL // 全部
+              全部
             </button>
             {lanes.map((l) => {
               const active = lane === l.id

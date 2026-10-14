@@ -30,7 +30,6 @@ function FormattedJd({ text }: { text: string }) {
         const headerTitle = isMdHeader ? isMdHeader[1] : trimmed
         return (
           <div key={idx} className="swiss-jd-header">
-            <span className="header-index">§</span>
             <span className="header-title">{headerTitle}</span>
           </div>
         )
@@ -52,7 +51,7 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
     return (
       <main className="detail-inspector is-empty">
         <div className="swiss-placeholder">
-          <div className="placeholder-mark">NO SELECTION // 无选中</div>
+          <div className="placeholder-mark">无选中</div>
           <div className="placeholder-sub">请在左侧列表按 j / k 选择岗位开始审阅</div>
         </div>
       </main>
@@ -94,11 +93,6 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
       <div className="inspector-scroll-area">
         {/* 瑞士版式头部看板 */}
         <header className="swiss-header">
-          <div className="header-index-strip">
-            <span className="strip-title">DOSSIER // 岗位档案</span>
-            <span className="strip-id">{item.encryptId || "ID: UNSET"}</span>
-          </div>
-
           <div className="header-top-row">
             <div className="header-title-wrap">
               {href ? (
@@ -147,20 +141,17 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
           <div className="swiss-meta-bar">
             <span className="meta-block company-block">{company}</span>
             {companyFacts ? <span className="meta-block area-block">{companyFacts}</span> : null}
-            {area ? <span className="meta-block area-block">LOC: {area}</span> : null}
-            {salary ? <span className="meta-block salary-block">SAL: {salary}</span> : null}
-            {reqFacts ? <span className="meta-block area-block">REQ: {reqFacts}</span> : null}
-            {recruiter ? <span className="meta-block recruiter-block">REC: {recruiter}</span> : null}
+            {area ? <span className="meta-block area-block">{area}</span> : null}
+            {salary ? <span className="meta-block salary-block">{salary}</span> : null}
+            {reqFacts ? <span className="meta-block area-block">{reqFacts}</span> : null}
+            {recruiter ? <span className="meta-block recruiter-block">{recruiter}</span> : null}
             {activeText ? (
-              <span className={`meta-block active-block ${actCls}`}>
-                ACT: {activeText}
-              </span>
+              <span className={`meta-block active-block ${actCls}`}>{activeText}</span>
             ) : null}
           </div>
 
           {item.keywords.length > 0 ? (
             <div className="swiss-keywords-bar">
-              <span className="kw-head">KEYWORDS //</span>
               {item.keywords.map((kw) => (
                 <span key={kw} className="swiss-kw-chip">
                   {kw}
@@ -174,12 +165,11 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
         <section className="swiss-section">
           <div className="section-masthead">
             <div className="masthead-left">
-              <span className="section-num">01</span>
               <h2 className="section-label">AI 决策研判卷宗</h2>
             </div>
             <div className="masthead-right">
-              <span className="masthead-tag status-tag">STATION: {stationTitle}</span>
-              {laneTitle ? <span className="masthead-tag lane-tag">LANE: {laneTitle}</span> : null}
+              <span className="masthead-tag status-tag">{stationTitle}</span>
+              {laneTitle ? <span className="masthead-tag lane-tag">{laneTitle}</span> : null}
             </div>
           </div>
 
@@ -189,25 +179,20 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
                 {/* 01 职责与业务 */}
                 <div className="dossier-row row-duty">
                   <div className="row-prefix">
-                    <span className="row-code">01.1</span>
                     <span className="row-title">职责与技术场景</span>
                   </div>
                   <div className="row-body">{reason.modular.dutyAndTech}</div>
                 </div>
 
-                {/* 02 核心对标点 - 最高优先级加粗强调 */}
                 <div className="dossier-row row-benchmark">
                   <div className="row-prefix">
-                    <span className="row-code highlight-code">01.2</span>
-                    <span className="row-title highlight-title">对标与切入点 [核心]</span>
+                    <span className="row-title">对标与切入点</span>
                   </div>
                   <div className="row-body benchmark-content">{reason.modular.benchmark}</div>
                 </div>
 
-                {/* 03 企业背景 */}
                 <div className="dossier-row row-company">
                   <div className="row-prefix">
-                    <span className="row-code">01.3</span>
                     <span className="row-title">企业规模与融资</span>
                   </div>
                   <div className="row-body">
@@ -215,10 +200,8 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
                   </div>
                 </div>
 
-                {/* 04 排雷风险 */}
                 <div className={`dossier-row row-risk ${isRiskClean ? "is-clean" : "is-warning"}`}>
                   <div className="row-prefix">
-                    <span className={`row-code ${isRiskClean ? "" : "risk-code"}`}>01.4</span>
                     <span className="row-title">排雷研判与风险</span>
                   </div>
                   <div className="row-body risk-content">{reason.modular.risk || "未提供风险评语"}</div>
@@ -227,7 +210,6 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
             ) : reason.dropCategory ? (
               <div className="swiss-drop-box">
                 <div className="drop-banner">
-                  <span className="drop-mark">REJECTED // 淘汰判定</span>
                   <span className="drop-category">【{reason.dropCategory}】</span>
                 </div>
                 <div className="drop-evidence-text">{reason.dropEvidence || reason.body}</div>
@@ -244,12 +226,11 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
         <section className="swiss-section">
           <div className="section-masthead">
             <div className="masthead-left">
-              <span className="section-num">02</span>
               <h2 className="section-label">原始岗位职责与任职要求 (JD)</h2>
             </div>
             <div className="masthead-right">
               <span className={`masthead-tag ${hasJd ? "jd-ready" : "jd-missing"}`}>
-                {hasJd ? "FULL-TEXT AVAILABLE // 已拉取" : "TITLE ONLY // 粗筛未抓取"}
+                {hasJd ? "已拉取" : "粗筛未抓取"}
               </span>
             </div>
           </div>
@@ -259,13 +240,12 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
               <FormattedJd text={item.jd || ""} />
             ) : (
               <div className="swiss-missing-notice">
-                <div className="notice-code">NULL // NO JD CAPTURED</div>
                 <div className="notice-text">
                   本岗位在列表标题粗筛阶段停驻，未发起详情页抓取请求
                 </div>
                 <div className="notice-path">
-                  当前归档停驻：{stationTitle}
-                  {laneTitle ? ` // 分类：${laneTitle}` : ""}
+                  当前停驻：{stationTitle}
+                  {laneTitle ? `，分类：${laneTitle}` : ""}
                 </div>
               </div>
             )}
