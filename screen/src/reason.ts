@@ -1,8 +1,5 @@
 import type { ScreenItem } from "./types"
 
-export type ReasonKind = "规则" | "AI" | null
-export type ReasonPhase = "标题" | "JD" | null
-
 export type ModularKeep = {
   dutyAndTech: string
   benchmark: string
@@ -11,10 +8,7 @@ export type ModularKeep = {
 }
 
 export type ParsedReason = {
-  kind: ReasonKind
-  phase: ReasonPhase
   body: string
-  note: string | null
   modular: ModularKeep | null
   dropCategory: string | null
   dropEvidence: string | null
@@ -22,42 +16,15 @@ export type ParsedReason = {
 }
 
 export function parseReason(raw: string): ParsedReason {
-  const text = (raw || "").trim()
-  if (!text) {
+  const remaining = (raw || "").trim()
+  if (!remaining) {
     return {
-      kind: null,
-      phase: null,
       body: "未写明",
-      note: null,
       modular: null,
       dropCategory: null,
       dropEvidence: null,
       summarySnippet: "未写明理由",
     }
-  }
-
-  let kind: ReasonKind = null
-  let phase: ReasonPhase = null
-  let remaining = text
-
-  if (remaining.startsWith("规则 ")) {
-    kind = "规则"
-    remaining = remaining.slice(3).trim()
-  } else if (remaining.startsWith("AI 标题 ")) {
-    kind = "AI"
-    phase = "标题"
-    remaining = remaining.slice("AI 标题 ".length).trim()
-  } else if (remaining.startsWith("AI JD ")) {
-    kind = "AI"
-    phase = "JD"
-    remaining = remaining.slice("AI JD ".length).trim()
-  }
-
-  let note: string | null = null
-  const noteMatch = remaining.match(/[；;]\s*(本轮详情上限|将点详情|工作地「.+?」，本轮不点详情)$/)
-  if (noteMatch) {
-    note = noteMatch[1].trim()
-    remaining = remaining.slice(0, noteMatch.index).trim()
   }
 
   // 四维评语：【职责与技术】...【对标与切入】...【公司背景】...【排雷风险】...
@@ -96,7 +63,7 @@ export function parseReason(raw: string): ParsedReason {
   let dropCategory: string | null = null
   let dropEvidence: string | null = null
   const catMatch = remaining.match(/^【([^】]+)】(.*)$/)
-  if (catMatch) {
+  if (!modular && catMatch) {
     dropCategory = catMatch[1].trim()
     dropEvidence = catMatch[2].replace(/^[：:\s]+/, "").trim()
   }
@@ -110,10 +77,7 @@ export function parseReason(raw: string): ParsedReason {
   }
 
   return {
-    kind,
-    phase,
     body: remaining || "无理由",
-    note,
     modular,
     dropCategory,
     dropEvidence,

@@ -1,6 +1,6 @@
 # Project
 
-Boss 岗位筛选与代聊，外加只读对照页。
+Boss 岗位流式筛选，外加只读对照页。
 
 ## Required reading
 
@@ -15,7 +15,7 @@ Boss 岗位筛选与代聊，外加只读对照页。
 - **Replace outright.** A change leaves one way to do the thing. Callers and tests move with that way.
 - **Test behaviour.** Derive assertions from requirements, contracts, or defects. For fixes, show the regression fails on the bug where practical. Name tests by scenario and expected result.
 - **Automate deterministic rules.** Use lint, types, and tests. Keep their configuration in tools, not in this file.
-- **Boundary.** The screening runtime lives at the repo root in `src/boss_screen/`. The workbench only changes `screen/`, and reads the repo-root `boss.yaml` itself. This repo screens Boss postings and chats on demand; not a hiring platform, not a business backend.
+- **Boundary.** The screening runtime lives at the repo root in `src/boss_screen/`. The workbench only changes `screen/`, and reads the repo-root `boss.yaml` itself. This repo only collects and screens Boss postings; no chatting, no applying, not a hiring platform, not a business backend.
 - **Personal tool.** Do not publish. Prefer one less choice, mode, or field. The owner being able to read and change it beats foolproofing and automatic tracking.
 
 ## Verification

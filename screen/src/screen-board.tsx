@@ -8,28 +8,22 @@ import DetailInspector from "./components/detail-inspector"
 import {
   bossHref,
   cityOf,
-  defaultScreenFile,
   defaultStation,
-  fileKey,
   isPlaced,
   jobKey,
   laneOf,
   stationOf,
   type CityPage,
   type LaneId,
-  type ScreenFile,
   type ScreenItem,
   type StationId,
 } from "./types"
 
 function getUrlParams() {
   const params = new URLSearchParams(window.location.search)
-  const paramFile = params.get("file")
-  const paramGroup = params.get("group") || "seen"
   const paramStation = STATIONS.find((s) => s.id === params.get("station"))
   const paramQuery = params.get("q")
   return {
-    urlKey: paramFile ? `${paramGroup}:${paramFile}` : null,
     station: paramStation?.id ?? null,
     query: paramQuery || "",
   }
@@ -39,8 +33,6 @@ export default function ScreenBoard() {
   const [initialParams] = useState(getUrlParams)
 
   const [items, setItems] = useState<ScreenItem[]>([])
-  const [files, setFiles] = useState<ScreenFile[]>([])
-  const [selectedFile, setSelectedFile] = useState<ScreenFile | null>(null)
   const [offline, setOffline] = useState(false)
 
   const [city, setCity] = useState<CityPage>("杭州")
@@ -56,23 +48,17 @@ export default function ScreenBoard() {
   const loadGen = useRef(0)
   const deferredQuery = useDeferredValue(query)
 
-  // 1. 读取选中文件；文件列表只在打开页面时读取，不定时刷新（ADR 0002）。
-  const loadResults = useCallback(async (file: ScreenFile, preferredStation?: StationId | null) => {
+  const loadResults = useCallback(async (preferredStation?: StationId | null) => {
     const gen = ++loadGen.current
-    setSelectedFile(file)
-    setItems([])
-    setLane(null)
-    setSelectedIndex(0)
     try {
-      const params = new URLSearchParams({ group: file.group, file: file.name })
-      const response = await fetch(`/api/screen-results?${params}`)
+      const response = await fetch("/api/screen-results")
       if (!response.ok) throw new Error("results")
       const data: { items: ScreenItem[] } = await response.json()
       if (gen !== loadGen.current) return
       const validItems = data.items.filter(isPlaced)
       setItems(validItems)
       setOffline(false)
-      if (validItems.length > 0) {
+      if (preferredStation !== undefined && validItems.length > 0) {
         setStation(preferredStation ?? defaultStation(validItems, cityRef.current))
       }
     } catch {
@@ -82,28 +68,14 @@ export default function ScreenBoard() {
   }, [])
 
   useEffect(() => {
-    let active = true
     setStars(loadStars())
-    async function loadFiles() {
-      try {
-        const response = await fetch("/api/screen-files")
-        if (!response.ok) throw new Error("files")
-        const body: { files: ScreenFile[] } = await response.json()
-        if (!active) return
-        setFiles(body.files)
-        const file = body.files.find((f) => fileKey(f) === initialParams.urlKey) ?? defaultScreenFile(body.files)
-        if (file) await loadResults(file, initialParams.station)
-      } catch {
-        if (active) setOffline(true)
-      }
-    }
-    void loadFiles()
-    return () => {
-      active = false
-    }
+    void loadResults(initialParams.station)
   }, [initialParams, loadResults])
 
-  // 2. 圈岗操作
+  const onRefresh = useCallback(() => {
+    void loadResults()
+  }, [loadResults])
+
   const onToggleStar = useCallback((key: string) => {
     setStars((prev) => {
       const next = new Set(prev)
@@ -128,7 +100,6 @@ export default function ScreenBoard() {
     setOnlyStar((prev) => !prev)
   }, [])
 
-  // 3. 统计计数
   const cityCounts = useMemo(() => {
     const m: Record<CityPage, number> = { 杭州: 0, 上海: 0, 其它: 0 }
     for (const it of items) {
@@ -146,7 +117,7 @@ export default function ScreenBoard() {
       const k = jobKey(it)
       if (onlyStar && !stars.has(k)) continue
       if (q) {
-        const blob = [it.company, it.job, it.reason, it.keyword, it.area, it.active]
+        const blob = [it.company, it.job, it.reason, it.keyword, it.area, it.active, it.tags || ""]
           .concat(it.keywords)
           .join(" ")
           .toLowerCase()
@@ -166,7 +137,7 @@ export default function ScreenBoard() {
     return m
   }, [inCity])
 
-  const lanes = lanesFor(station, city)
+  const lanes = lanesFor(station)
 
   const laneCounts = useMemo(() => {
     const m: Partial<Record<LaneId, number>> = {}
@@ -186,7 +157,6 @@ export default function ScreenBoard() {
     return n
   }, [items, city, stars])
 
-  // 4. 当前切片展示的最终岗位列表
   const displayItems = useMemo(() => {
     const ofStation: ScreenItem[] = []
     for (const it of inCity) {
@@ -200,16 +170,13 @@ export default function ScreenBoard() {
     return ofStation
   }, [inCity, station, lane])
 
-  // 切换维度时重置选中的卡片索引
   useEffect(() => {
     setSelectedIndex(0)
   }, [city, station, lane, deferredQuery, onlyStar])
 
-  // 安全焦点索引
   const safeIndex = displayItems.length === 0 ? 0 : Math.min(selectedIndex, displayItems.length - 1)
   const currentItem = displayItems[safeIndex] ?? null
 
-  // 5. 键盘快捷键监听
   const navRef = useRef({ items: displayItems, idx: safeIndex })
   navRef.current = { items: displayItems, idx: safeIndex }
 
@@ -247,6 +214,12 @@ export default function ScreenBoard() {
         return
       }
 
+      if (e.key === "r") {
+        e.preventDefault()
+        onRefresh()
+        return
+      }
+
       const targetStation = STATIONS.find((s) => s.keyHint === e.key)
       if (targetStation) {
         e.preventDefault()
@@ -254,7 +227,6 @@ export default function ScreenBoard() {
         return
       }
 
-      // s 或 Space 圈岗
       if (e.key === "s" || e.key === " ") {
         const it = list[idx]
         if (!it) return
@@ -263,7 +235,6 @@ export default function ScreenBoard() {
         return
       }
 
-      // Enter 或 o 直达 Boss 链接
       if (e.key === "Enter" || e.key === "o") {
         const it = list[idx]
         const href = it ? bossHref(it.href) : ""
@@ -275,7 +246,7 @@ export default function ScreenBoard() {
 
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [onToggleStar, onSelectStation])
+  }, [onToggleStar, onSelectStation, onRefresh])
 
   const stationTitle = STATIONS.find((s) => s.id === station)!.title
   const activeLaneObj = lanes.find((l) => l.id === lane)
@@ -283,10 +254,9 @@ export default function ScreenBoard() {
   return (
     <div className="workbench-app">
       <TopBar
-        files={files}
-        selectedFile={selectedFile}
+        totalCount={items.length}
         offline={offline}
-        onSelectFile={loadResults}
+        onRefresh={onRefresh}
         city={city}
         onSelectCity={onSelectCity}
         cityCounts={cityCounts}

@@ -116,7 +116,9 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
   const area = item.area.trim()
   const salary = item.salary?.trim()
   const activeText = item.active.trim()
-  const recruiter = item.recruiter?.trim()
+  const recruiter = [item.recruiter?.trim(), item.recruiterTitle?.trim()].filter(Boolean).join(" · ")
+  const companyFacts = [item.industry?.trim(), item.scale?.trim(), item.financing?.trim()].filter(Boolean).join(" / ")
+  const reqFacts = [item.degree?.trim(), item.experience?.trim()].filter(Boolean).join(" · ")
   const hasJd = Boolean(item.jd?.trim())
   const reason = itemReason(item)
   const actCls = activeClass(activeText)
@@ -194,8 +196,10 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
 
           <div className="swiss-meta-bar">
             <span className="meta-block company-block">{company}</span>
+            {companyFacts ? <span className="meta-block area-block">{companyFacts}</span> : null}
             {area ? <span className="meta-block area-block">LOC: {area}</span> : null}
             {salary ? <span className="meta-block salary-block">SAL: {salary}</span> : null}
+            {reqFacts ? <span className="meta-block area-block">REQ: {reqFacts}</span> : null}
             {recruiter ? <span className="meta-block recruiter-block">REC: {recruiter}</span> : null}
             {activeText ? (
               <span className={`meta-block active-block ${actCls}`}>
@@ -226,7 +230,6 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
             <div className="masthead-right">
               <span className="masthead-tag status-tag">STATION: {stationTitle}</span>
               {laneTitle ? <span className="masthead-tag lane-tag">LANE: {laneTitle}</span> : null}
-              {reason.note ? <span className="masthead-tag note-tag">{reason.note}</span> : null}
             </div>
           </div>
 
@@ -283,10 +286,6 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
               </div>
             ) : (
               <div className="swiss-generic-box">
-                <div className="generic-tags">
-                  {reason.kind ? <span className="swiss-tag">{reason.kind}</span> : null}
-                  {reason.phase ? <span className="swiss-tag">{reason.phase}</span> : null}
-                </div>
                 <div className="generic-body">{reason.body}</div>
               </div>
             )}

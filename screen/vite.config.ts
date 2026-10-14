@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import type { Connect, Plugin } from "vite"
 import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
-import { listFiles, readResults } from "./screen-data.mjs"
+import { readResults } from "./screen-data.mjs"
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -12,12 +12,8 @@ function screenData(): Plugin {
     middlewares.use((req, res, next) => {
       const url = new URL(req.url ?? "/", "http://127.0.0.1")
       try {
-        if (url.pathname === "/api/screen-files") {
-          send(res, 200, listFiles(ROOT))
-          return
-        }
         if (url.pathname === "/api/screen-results") {
-          const [status, body] = readResults(ROOT, url)
+          const [status, body] = readResults(ROOT)
           send(res, status, body)
           return
         }

@@ -1,4 +1,4 @@
-"""筛选和代聊不能同时持有同一登录目录。"""
+"""单实例进程锁，防止同时启动多个筛选进程争抢同一浏览器目录。"""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def take_lock(path: Path | None = None):
     chosen = path or default_lock_path()
     handle = acquire(chosen)
     if handle is None:
-        log.error("已有筛选或代聊在跑")
+        log.error("已有筛选进程在运行")
         raise SystemExit(1)
     return handle
 

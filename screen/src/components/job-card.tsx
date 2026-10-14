@@ -68,7 +68,6 @@ function JobCard({ item, index, isSelected, isStarred, onSelect, onToggleStar }:
       </div>
 
       <div className="card-snippet-row">
-        {reason.note ? <span className="card-note-tag">[{reason.note}]</span> : null}
         <span className="card-snippet-text" title={reason.summarySnippet}>
           {reason.modular ? <span className="swiss-symbol">§ </span> : null}
           {reason.dropCategory ? <span className="swiss-drop-tag">[{reason.dropCategory}] </span> : null}

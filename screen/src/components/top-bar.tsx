@@ -1,19 +1,11 @@
 import { memo } from "react"
 import { CITY_PAGES, STATIONS } from "../constants"
-import {
-  fileKey,
-  fileLabel,
-  type CityPage,
-  type LaneId,
-  type ScreenFile,
-  type StationId,
-} from "../types"
+import type { CityPage, LaneId, StationId } from "../types"
 
 type Props = {
-  files: ScreenFile[]
-  selectedFile: ScreenFile | null
+  totalCount: number
   offline: boolean
-  onSelectFile: (file: ScreenFile) => void
+  onRefresh: () => void
   city: CityPage
   onSelectCity: (city: CityPage) => void
   cityCounts: Record<CityPage, number>
@@ -32,10 +24,9 @@ type Props = {
 }
 
 function TopBar({
-  files,
-  selectedFile,
+  totalCount,
   offline,
-  onSelectFile,
+  onRefresh,
   city,
   onSelectCity,
   cityCounts,
@@ -55,30 +46,18 @@ function TopBar({
   return (
     <header className="swiss-topbar">
       <div className="topbar-row-primary">
-        {/* 瑞士报头与文件索引 */}
+        {/* 报头与单库状态 */}
         <div className="topbar-masthead">
           <span className="masthead-brand">SWISS // SCREEN</span>
-          <div className="swiss-file-picker">
-            <select
-              className="swiss-select"
-              value={selectedFile ? fileKey(selectedFile) : ""}
-              onChange={(e) => {
-                const file = files.find((f) => fileKey(f) === e.target.value)
-                if (file) onSelectFile(file)
-              }}
-              title="切换筛选结果文件"
-            >
-              {files.map((f) => {
-                const k = fileKey(f)
-                return (
-                  <option key={k} value={k}>
-                    {f.group === "archive" ? "[EXP] " : ""}
-                    {fileLabel(f)}
-                  </option>
-                )
-              })}
-            </select>
-          </div>
+          <button
+            type="button"
+            className="swiss-tool-btn"
+            onClick={onRefresh}
+            title="从 SQLite 刷新最新流式结果 (快捷键 r)"
+          >
+            <span>DB // {totalCount} 岗</span>
+            <span className="tool-count">[刷新 r]</span>
+          </button>
           {offline ? <span className="swiss-offline-flag">OFFLINE</span> : null}
         </div>
 

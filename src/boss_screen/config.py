@@ -1,4 +1,4 @@
-"""读仓库根 boss.yaml。路径相对这份配置所在目录。"""
+"""读取仓库根 boss.yaml。路径相对配置文件所在目录。"""
 
 from __future__ import annotations
 
@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
-
-from boss_screen.rules import slug
 
 UNLIMITED = "0"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -37,7 +35,6 @@ def setup_logging(log_file: Path | None) -> None:
 class Settings:
     keywords: list[str]
     city_codes: list[str]
-    job_type_name: str
     job_type_code: str
     experience: list[str]
     degree: list[str]
@@ -49,13 +46,9 @@ class Settings:
     keyword_gap: int
     detail_limit: int
     stop_on_risk: bool
-    screen_dir: Path
+    db_path: Path
     browser_data: Path
-    opened_chats: Path
-    resume_image: Path
     log_file: Path | None
-    greeting: str
-    config_path: Path
     ai_base: str
     ai_key: str
     ai_model: str
@@ -106,14 +99,13 @@ def load_settings(path: Path | None = None) -> Settings:
         raise SystemExit("boss.yaml 的 prompts.title / prompts.jd 不能为空")
     rules = data.get("rules") or {}
     black = data.get("blacklist") or {}
-    # screenArchiveDir 只给对照页，续跑不读。
-    screen_raw = str(data.get("screenResultsDir") or "screen-results").strip()
-    log_file = _parse_log_file(root, screen_raw, data.get("logFile"))
+    db_raw = str(data.get("dbPath") or "screen-results/boss.db").strip()
+    db_path = _resolve_path(root, db_raw)
+    log_file = _parse_log_file(root, db_path.parent, data.get("logFile"))
     gap = data.get("keywordGapSeconds")
     return Settings(
         keywords=keywords,
         city_codes=city_codes,
-        job_type_name=job_type_name or "na",
         job_type_code=job_type_code,
         experience=_codes(codes, "experience", data.get("experience")),
         degree=_codes(codes, "degree", data.get("degree")),
@@ -122,16 +114,12 @@ def load_settings(path: Path | None = None) -> Settings:
         industry=_codes(codes, "industry", data.get("industry")),
         stage_codes=_codes(codes, "stage", data.get("stage")),
         wait_time=_wait_time(data.get("waitTime")),
-        keyword_gap=300 if gap is None else max(0, int(gap)),
+        keyword_gap=90 if gap is None else max(0, int(gap)),
         detail_limit=0 if data.get("detailLimit") is None else int(data["detailLimit"]),
         stop_on_risk=str(data.get("onRisk") or "stop").strip().lower() == "stop",
-        screen_dir=(root / screen_raw).resolve(),
+        db_path=db_path,
         browser_data=(root / "browser-data").resolve(),
-        opened_chats=(root / "opened-chats.jsonl").resolve(),
-        resume_image=(root / "resume.jpg").resolve(),
         log_file=log_file,
-        greeting=str(data.get("greeting") or "").strip(),
-        config_path=yaml_path,
         ai_base=base.rstrip("/"),
         ai_key=key,
         ai_model=model,
@@ -170,19 +158,19 @@ def search_url(settings: Settings, city_code: str) -> str:
     return base + "?" + "&".join(params)
 
 
-def screen_file_name(stamp: str, job_type: str, keyword: str) -> str:
-    return f"{stamp}_{slug(job_type)}_{slug(keyword)}.jsonl"
+def _resolve_path(root: Path, raw: str) -> Path:
+    candidate = Path(raw)
+    return candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
 
 
-def _parse_log_file(root: Path, screen_raw: str, log_raw: object) -> Path | None:
+def _parse_log_file(root: Path, default_dir: Path, log_raw: object) -> Path | None:
     if log_raw is None:
-        return (root / screen_raw / "screen.log").resolve()
+        return (default_dir / "screen.log").resolve()
     if isinstance(log_raw, str):
         text = log_raw.strip()
         if not text:
             return None
-        candidate = Path(text)
-        return candidate if candidate.is_absolute() else (root / candidate).resolve()
+        return _resolve_path(root, text)
     return None
 
 

@@ -1,4 +1,4 @@
-"""本机 Chrome。筛选和代聊共用同一登录目录。"""
+"""本机 Chrome 持久会话与风控检测。"""
 
 from __future__ import annotations
 

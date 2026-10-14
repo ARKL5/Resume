@@ -1,4 +1,4 @@
-"""列表规则、城市分页、停因。"""
+"""筛选规则、城市分页与状态流转。"""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ PLACED_STAGES = frozenset(
         "rule_drop",
         "ai_title_drop",
         "ai_title_pending",
-        "ai_jd_drop",
-        "jd_wait",
-        "jd_wait_other",
+        "jd_park",
+        "jd_queued",
         "ai_jd_pending",
+        "ai_jd_drop",
         "ai_keep",
     }
 )
@@ -50,16 +50,6 @@ def first_token(text: str | None, tokens: list[str] | None) -> str | None:
         if token and contains_job_token(text, token):
             return token
     return None
-
-
-def has_hr_active_copy(active: str | None) -> bool:
-    if not active or not active.strip():
-        return False
-    text = active.strip()
-    if text.lower() in ("true", "false"):
-        return False
-    markers = ("在线", "刚刚", "今日", "今天", "日", "天", "周", "月", "年", "未上线")
-    return any(marker in text for marker in markers)
 
 
 def is_active_within_3_days(active: str | None) -> bool:
@@ -110,7 +100,6 @@ def recruiter_drop_reason(
 def rule_drop_reason(
     job_name: str | None,
     company: str | None,
-    active: str | None,
     recruiter_title: str | None,
     recruiter_name: str | None,
     *,
@@ -120,8 +109,6 @@ def rule_drop_reason(
     company_tokens: list[str] | None,
     job_tokens: list[str] | None,
 ) -> str | None:
-    if has_hr_active_copy(active) and not is_active_within_3_days(active):
-        return "HR未近3天活跃：" + (active or "").strip()
     term = _matched_term(black_jobs, job_name)
     if term:
         return f"职位黑名单命中：{term}"
@@ -134,6 +121,17 @@ def rule_drop_reason(
     job_token = first_token(job_name, job_tokens)
     if job_token:
         return f"岗位名含：{job_token}"
+    return recruiter_drop_reason(recruiter_title, recruiter_name, black_recruiters)
+
+
+def detail_rule_drop_reason(
+    active: str | None,
+    recruiter_title: str | None,
+    recruiter_name: str | None,
+    black_recruiters: list[str] | None,
+) -> str | None:
+    if not is_active_within_3_days(active):
+        return "HR活跃度缺失或未近3天活跃：" + ((active or "未知").strip() or "未知")
     return recruiter_drop_reason(recruiter_title, recruiter_name, black_recruiters)
 
 
@@ -159,42 +157,13 @@ def extract_encrypt_id(href: str | None) -> str:
     return encrypt_id
 
 
-def row_key(encrypt_id: str | None, company: str | None, job: str | None) -> str:
-    if encrypt_id and encrypt_id.strip():
-        return "id:" + encrypt_id.strip()
-    name = f"{company or ''}|{job or ''}"
-    if name == "|":
-        return ""
-    return "name:" + name
-
-
 def is_placed_row(row: dict | None) -> bool:
     if not row:
         return False
+    encrypt_id = str(row.get("encryptId") or "").strip()
     stage = str(row.get("stage") or "").strip()
     city = str(row.get("cityPage") or "").strip()
-    return stage in PLACED_STAGES and city in CITY_PAGES
-
-
-def strip_reason_body(raw: str | None) -> str:
-    if not raw:
-        return ""
-    return re.sub(r"^(规则|AI 标题|AI JD)\s+", "", raw.strip()).strip()
-
-
-def rule_reason(rule: str | None) -> str:
-    body = strip_reason_body(rule)
-    return "规则 " + (body or "未写明")
-
-
-def ai_title_reason(reason: str | None) -> str:
-    body = strip_reason_body(reason)
-    return "AI 标题 " + (body or "无理由")
-
-
-def ai_jd_reason(reason: str | None) -> str:
-    body = strip_reason_body(reason)
-    return "AI JD " + (body or "无理由")
+    return valid_encrypt_id(encrypt_id) and stage in PLACED_STAGES and city in CITY_PAGES
 
 
 def _shorten(text: str, limit: int = 80) -> str:
@@ -204,88 +173,37 @@ def _shorten(text: str, limit: int = 80) -> str:
 def ai_fail_reason(phase: str, reason: str | None) -> str:
     raw = "" if reason is None else reason.replace("\n", " ").strip()
     if not raw:
-        return f"AI {phase} 失败或无法解析"
-    body = strip_reason_body(raw)
-    rest = body or raw
+        return f"{phase}失败或无法解析"
     if (
         "状态码" in raw
         or raw.startswith("AI请求")
         or "upstream" in raw
         or "auth_unavailable" in raw
     ):
-        return f"AI {phase} 失败：" + _shorten(rest)
-    return f"AI {phase} 无法解析：" + _shorten(rest)
-
-
-def is_pending_click(reason: str | None) -> bool:
-    text = reason or ""
-    return "将点详情" in text or "详情上限" in text
-
-
-def stored_hr_drop_reason(row: dict) -> str | None:
-    """已保留岗位的活跃文案需要改判时返回停因，不修改岗位。"""
-    if row.get("stage") != "ai_keep":
-        return None
-    active = str(row.get("active") or "")
-    if has_hr_active_copy(active) and not is_active_within_3_days(active):
-        return rule_reason("HR未近3天活跃：" + active.strip())
-    return None
+        return f"{phase}请求失败：" + _shorten(raw)
+    return f"{phase}无法解析：" + _shorten(raw)
 
 
 def next_step(row: dict | None, city_page: str, list_rule: str | None, remaining: int) -> str:
-    """再次出现时的下一步：skip、reclass、rule、title、click、jd、leave。"""
-    if row is not None:
-        if stored_hr_drop_reason(row):
-            return "reclass"
-        if row.get("stage") in TERMINAL_STAGES:
-            return "skip"
+    """岗位在列表出现时的下一步：skip、rule、title、click、jd、leave。"""
+    if row is not None and row.get("stage") in TERMINAL_STAGES:
+        return "skip"
     if list_rule:
         return "rule"
     if row is None:
         return "title"
     stage = str(row.get("stage") or "")
-    if stage == "jd_wait_other":
-        return "title" if is_search_city(city_page) else "leave"
     if stage == "ai_title_pending":
         return "title"
     if stage == "ai_jd_pending":
         if str(row.get("jd") or "").strip():
             return "jd"
-        return "click" if remaining > 0 else "leave"
-    if stage == "jd_wait" and is_pending_click(str(row.get("reason") or "")):
-        return "click" if remaining > 0 else "leave"
-    if stage == "jd_wait":
+        return "click" if (is_search_city(city_page) and remaining > 0) else "leave"
+    if stage == "jd_queued":
+        return "click" if (is_search_city(city_page) and remaining > 0) else "leave"
+    if stage == "jd_park":
         return "leave"
     return "title"
-
-
-def saved_jd_job(
-    row: dict,
-    *,
-    job: str,
-    company: str,
-    area: str,
-    href: str,
-    encrypt_id: str,
-) -> dict:
-    """跨轮重试 JD。正文用已存的，学历经验行业规模融资和招聘者头衔空着。"""
-    return {
-        "job": job or str(row.get("job") or ""),
-        "company": company or str(row.get("company") or ""),
-        "salary": str(row.get("salary") or ""),
-        "area": area or str(row.get("area") or ""),
-        "recruiter": str(row.get("recruiter") or ""),
-        "recruiterTitle": "",
-        "active": str(row.get("active") or ""),
-        "href": href or str(row.get("href") or ""),
-        "encryptId": encrypt_id or str(row.get("encryptId") or ""),
-        "jd": str(row.get("jd") or ""),
-        "degree": "",
-        "experience": "",
-        "industry": "",
-        "scale": "",
-        "financing": "",
-    }
 
 
 def title_disposition(
@@ -294,32 +212,18 @@ def title_disposition(
     city_page: str,
     remaining_clicks: int,
 ) -> tuple[str, str, bool]:
-    """返回 stage、停因、是否占用一次详情点击。"""
+    """返回 (stage, reason, should_click_now)。"""
     if action is None:
         return "ai_title_pending", ai_fail_reason("标题", reason), False
+    clean = (reason or "").strip() or "无理由"
     if action == "drop":
-        return "ai_title_drop", ai_title_reason(reason), False
-    if not is_search_city(city_page):
-        labeled = ai_title_reason(reason)
-        return "jd_wait_other", f"{labeled}；工作地「{city_page}」，本轮不点详情", False
+        return "ai_title_drop", clean, False
     if action == "park":
-        return "jd_wait", ai_title_reason(reason), False
-    labeled = ai_title_reason(reason)
-    if remaining_clicks > 0:
-        return "jd_wait", labeled + "；将点详情", True
-    return "jd_wait", labeled + "；本轮详情上限", False
+        return "jd_park", clean, False
+    should_click = is_search_city(city_page) and remaining_clicks > 0
+    return "jd_queued", clean, should_click
 
 
 def join_area(*parts: str | None) -> str:
     kept = [part.strip() for part in parts if part and part.strip()]
     return "·".join(kept)
-
-
-def slug(raw: str | None) -> str:
-    if not raw or not raw.strip():
-        return "na"
-    text = re.sub(r"[\\/:*?\"<>|\s]+", "-", raw.strip())
-    text = re.sub(r"-+", "-", text).strip("-")
-    if len(text) > 80:
-        text = text[:80]
-    return text or "na"

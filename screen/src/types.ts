@@ -4,10 +4,10 @@ export type Stage =
   | "rule_drop"
   | "ai_title_drop"
   | "ai_title_pending"
-  | "ai_jd_drop"
+  | "jd_park"
+  | "jd_queued"
   | "ai_jd_pending"
-  | "jd_wait"
-  | "jd_wait_other"
+  | "ai_jd_drop"
   | "ai_keep"
 
 export type ScreenItem = {
@@ -20,29 +20,18 @@ export type ScreenItem = {
   active: string
   salary?: string
   href: string
+  tags?: string
   jd?: string
+  recruiter?: string
+  recruiterTitle?: string
+  degree?: string
+  experience?: string
+  industry?: string
+  scale?: string
+  financing?: string
   stage: Stage
   reason: string
   cityPage: CityPage
-  recruiter?: string
-}
-
-export type ScreenFile = {
-  name: string
-  group: "seen" | "archive"
-  keyword: string
-  jobType: string
-  startedAt: string
-  rows: number
-  mtime: number
-}
-
-export function fileKey(file: ScreenFile): string {
-  return `${file.group}:${file.name}`
-}
-
-export function defaultScreenFile(files: ScreenFile[]): ScreenFile | null {
-  return files.find((file) => file.group === "seen") ?? null
 }
 
 export type CityPage = "杭州" | "上海" | "其它"
@@ -64,7 +53,7 @@ export function defaultStation(items: ScreenItem[], city: CityPage): StationId {
   return "rule"
 }
 
-/** AI / 待读里的分类。规则和保留没有。其它城走城市分页。 */
+/** AI / 待读里的分类。规则和保留没有。 */
 export type LaneId =
   | "title_drop"
   | "jd_drop"
@@ -74,8 +63,7 @@ export type LaneId =
   | "park"
 
 export function jobKey(it: ScreenItem): string {
-  if (it.encryptId) return `id:${it.encryptId}`
-  return `name:${it.company || ""}|${it.job || ""}`
+  return it.encryptId
 }
 
 export function stationOf(it: ScreenItem): StationId | null {
@@ -87,8 +75,8 @@ export function stationOf(it: ScreenItem): StationId | null {
     case "ai_jd_drop":
     case "ai_jd_pending":
       return "ai"
-    case "jd_wait":
-    case "jd_wait_other":
+    case "jd_park":
+    case "jd_queued":
       return "wait"
     case "ai_keep":
       return "keep"
@@ -107,10 +95,10 @@ export function laneOf(it: ScreenItem): LaneId | null {
       return "title_fail"
     case "ai_jd_pending":
       return "jd_fail"
-    case "jd_wait": {
-      const r = it.reason || ""
-      return r.includes("将点详情") || r.includes("详情上限") ? "click_cap" : "park"
-    }
+    case "jd_queued":
+      return "click_cap"
+    case "jd_park":
+      return "park"
     default:
       return null
   }
@@ -123,11 +111,7 @@ export function cityOf(it: ScreenItem): CityPage | null {
 }
 
 export function isPlaced(it: ScreenItem): boolean {
-  return stationOf(it) != null && cityOf(it) != null
-}
-
-export function fileLabel(f: ScreenFile): string {
-  return `${f.keyword} · ${f.jobType} · ${f.startedAt} ${f.rows}`
+  return Boolean(it.encryptId) && stationOf(it) != null && cityOf(it) != null
 }
 
 export function activeClass(text: string): string {

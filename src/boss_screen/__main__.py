@@ -1,8 +1,4 @@
-"""从仓库根启动。
-
-筛选：uv run python src/boss_screen/__main__.py
-代聊：uv run python src/boss_screen/__main__.py chat <encryptId> [--image]
-"""
+"""从仓库根启动筛选：uv run python src/boss_screen/__main__.py"""
 
 from __future__ import annotations
 
@@ -18,14 +14,8 @@ def _prepare_path() -> None:
 
 if __name__ == "__main__":
     _prepare_path()
-    args = sys.argv[1:]
-    if args[:1] == ["chat"]:
-        from boss_screen.chat import main as chat_main
+    if sys.argv[1:]:
+        raise SystemExit("未知参数")
+    from boss_screen.run import main
 
-        chat_main(args[1:])
-    elif args:
-        raise SystemExit("未知命令")
-    else:
-        from boss_screen.run import main
-
-        main()
+    main()

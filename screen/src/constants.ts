@@ -21,8 +21,8 @@ export const WAIT_LANES: { id: LaneId; title: string }[] = [
   { id: "park", title: "含糊" },
 ]
 
-export function lanesFor(station: StationId, city: CityPage): { id: LaneId; title: string }[] {
+export function lanesFor(station: StationId): { id: LaneId; title: string }[] {
   if (station === "ai") return AI_LANES
-  if (station === "wait" && city !== "其它") return WAIT_LANES
+  if (station === "wait") return WAIT_LANES
   return []
 }

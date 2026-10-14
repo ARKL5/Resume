@@ -7,34 +7,27 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 
 from boss_screen.ai import parse_jd, parse_title_action
 from boss_screen.browser import detail_gap_seconds, halt_if_risk, proxy_args
-from boss_screen.cards import ingest_job_list, parse_detail
-from boss_screen.chat import (
-    _parse_args,
-    button_action,
-    first_visible_action,
-    next_chat_step,
-    should_record,
-)
-from boss_screen.config import load_settings, screen_file_name, search_url, setup_logging
-from boss_screen.opened import append_opened, load_ids
+from boss_screen.cards import Card, ingest_job_list, overlay, parse_detail
+from boss_screen.config import load_settings, search_url, setup_logging
 from boss_screen.proc_lock import acquire, release, take_lock
 from boss_screen.rules import (
     classify_city,
     contains_job_token,
+    detail_rule_drop_reason,
     is_active_within_3_days,
     next_step,
     rule_drop_reason,
-    saved_jd_job,
-    stored_hr_drop_reason,
     title_disposition,
 )
-from boss_screen.store import ScreenLog, load_seen
+from boss_screen.run import Session
+from boss_screen.store import JobStore
 
 
 def test_city_page_uses_city_name_only():
@@ -49,7 +42,7 @@ def test_training_token_skips_post_training():
     assert contains_job_token("数据训练师", "训练") is True
 
 
-def test_list_rule_drops_job_token_and_inactive_hr():
+def test_list_and_detail_rules():
     kwargs = {
         "black_jobs": [],
         "black_companies": [],
@@ -57,12 +50,19 @@ def test_list_rule_drops_job_token_and_inactive_hr():
         "company_tokens": ["外包"],
         "job_tokens": ["运营", "前端"],
     }
-    assert rule_drop_reason("AI Agent运营", "玩点", "", "", "", **kwargs) == "岗位名含：运营"
-    assert rule_drop_reason("后端", "外包公司", "", "", "", **kwargs) == "公司名含：外包"
-    assert rule_drop_reason("Agent", "华为", "本周活跃", "工程师", "", **kwargs) == "HR未近3天活跃：本周活跃"
-    assert rule_drop_reason("Agent", "华为", "", "猎头", "", **kwargs) == "招聘者含：猎头"
-    assert rule_drop_reason("Agent", "华为", "刚刚活跃", "", "", **kwargs) is None
+    assert rule_drop_reason("AI Agent运营", "玩点", "", "", **kwargs) == "岗位名含：运营"
+    assert rule_drop_reason("后端", "外包公司", "", "", **kwargs) == "公司名含：外包"
+    assert rule_drop_reason("Agent", "华为", "猎头", "", **kwargs) == "招聘者含：猎头"
+    assert rule_drop_reason("Agent", "华为", "技术负责人", "", **kwargs) is None
+
+    assert detail_rule_drop_reason("本周活跃", "工程师", "", []) == "HR活跃度缺失或未近3天活跃：本周活跃"
+    assert detail_rule_drop_reason("", "工程师", "", []) == "HR活跃度缺失或未近3天活跃：未知"
+    assert detail_rule_drop_reason("true", "工程师", "", []) == "HR活跃度缺失或未近3天活跃：true"
+    assert detail_rule_drop_reason("刚刚活跃", "猎头顾问", "", []) == "招聘者含：猎头"
+    assert detail_rule_drop_reason("刚刚活跃", "工程师", "", []) is None
     assert is_active_within_3_days("") is False
+    assert is_active_within_3_days("刚刚活跃") is True
+    assert is_active_within_3_days("未知") is False
 
 
 def test_blacklist_reason_uses_the_first_matching_term():
@@ -73,32 +73,37 @@ def test_blacklist_reason_uses_the_first_matching_term():
         "company_tokens": [],
         "job_tokens": [],
     }
-    assert rule_drop_reason("Agent 开发", "乙", "", "", "", **kwargs) == "职位黑名单命中：Agent"
-    assert rule_drop_reason("后端", "甲公司", "", "", "", **kwargs) == "公司黑名单命中：甲"
-    assert rule_drop_reason("后端", "乙", "", "技术负责人", "李", **kwargs) == "招聘者黑名单命中：负责人"
-    assert rule_drop_reason("后端", "乙", "", "工程师", "李", **kwargs) == "招聘者黑名单命中：李"
+    assert rule_drop_reason("Agent 开发", "乙", "", "", **kwargs) == "职位黑名单命中：Agent"
+    assert rule_drop_reason("后端", "甲公司", "", "", **kwargs) == "公司黑名单命中：甲"
+    assert rule_drop_reason("后端", "乙", "技术负责人", "李", **kwargs) == "招聘者黑名单命中：负责人"
+    assert rule_drop_reason("后端", "乙", "工程师", "李", **kwargs) == "招聘者黑名单命中：李"
 
 
-def test_title_disposition_parks_other_city_and_caps_clicks():
-    stage, reason, click = title_disposition("click", "可点", "其它", 3)
-    assert stage == "jd_wait_other"
-    assert "本轮不点详情" in reason
+def test_title_disposition_separates_stage_from_clean_reason():
+    stage, reason, click = title_disposition("click", "Agent 应用开发", "其它", 3)
+    assert stage == "jd_queued"
+    assert reason == "Agent 应用开发"
     assert click is False
 
-    stage, reason, click = title_disposition("park", "看不准", "杭州", 3)
-    assert stage == "jd_wait"
-    assert "将点详情" not in reason
+    stage, reason, click = title_disposition("park", "职责看不准", "杭州", 3)
+    assert stage == "jd_park"
+    assert reason == "职责看不准"
     assert click is False
 
-    stage, reason, click = title_disposition("click", "可点", "上海", 1)
-    assert stage == "jd_wait" and click is True and "将点详情" in reason
+    stage, reason, click = title_disposition("click", "Agent 应用开发", "上海", 1)
+    assert stage == "jd_queued"
+    assert reason == "Agent 应用开发"
+    assert click is True
 
-    stage, reason, click = title_disposition("click", "可点", "杭州", 0)
-    assert click is False and "详情上限" in reason
+    stage, reason, click = title_disposition("click", "Agent 应用开发", "杭州", 0)
+    assert stage == "jd_queued"
+    assert reason == "Agent 应用开发"
+    assert click is False
 
-    stage, reason, _click = title_disposition("drop", "运营", "杭州", 1)
-    assert stage == "ai_title_drop" and reason.startswith("规则") is False
-    assert reason.startswith("AI 标题")
+    stage, reason, click = title_disposition("drop", "纯运营岗位", "杭州", 1)
+    assert stage == "ai_title_drop"
+    assert reason == "纯运营岗位"
+    assert click is False
 
 
 def test_ai_reply_returns_decision_and_reason_from_json():
@@ -113,7 +118,7 @@ def test_ai_reply_does_not_guess_a_decision_outside_the_json_contract():
     assert parse_jd("不是 json")[0] is None
 
 
-def test_search_url_and_file_name(tmp_path: Path):
+def test_search_url_and_db_path(tmp_path: Path):
     path = tmp_path / "boss.yaml"
     path.write_text(
         yaml.safe_dump(
@@ -131,7 +136,7 @@ def test_search_url_and_file_name(tmp_path: Path):
                 "keywordGapSeconds": 60,
                 "detailLimit": 0,
                 "onRisk": "stop",
-                "screenResultsDir": "screen-results",
+                "dbPath": "screen-results/boss.db",
                 "ai": {"baseUrl": "http://127.0.0.1:8317/v1", "apiKey": "k", "model": "m"},
                 "rules": {"companyTokens": [], "jobTitleTokens": ["运营"]},
                 "blacklist": {"companies": [], "jobs": [], "recruiters": []},
@@ -151,9 +156,7 @@ def test_search_url_and_file_name(tmp_path: Path):
     settings = load_settings(path)
     assert settings.wait_time == 18
     assert settings.browser_data == tmp_path / "browser-data"
-    assert settings.opened_chats == tmp_path / "opened-chats.jsonl"
-    assert settings.resume_image == tmp_path / "resume.jpg"
-    assert settings.screen_dir == tmp_path / "screen-results"
+    assert settings.db_path == tmp_path / "screen-results" / "boss.db"
     assert settings.log_file == tmp_path / "screen-results" / "screen.log"
     url = search_url(settings, "101210100")
     assert url.startswith("https://www.zhipin.com/web/geek/jobs?")
@@ -162,7 +165,6 @@ def test_search_url_and_file_name(tmp_path: Path):
     assert "experience=108,102" in url
     assert "degree=203" in url
     assert "industry=" not in url
-    assert screen_file_name("20260922-010102", "实习", "AI Agent") == "20260922-010102_实习_AI-Agent.jsonl"
 
 
 @pytest.mark.parametrize(
@@ -184,162 +186,109 @@ def test_config_requires_lists_and_named_options(tmp_path: Path, field: str, val
         load_settings(path)
 
 
-def test_jsonl_round_trip_preserves_rows_and_collects_keywords(tmp_path: Path):
-    path = tmp_path / "one.jsonl"
-    screen = ScreenLog(path)
-    screen.upsert(
-        {
-            "keyword": "AI Agent",
-            "company": "甲",
-            "job": "开发",
-            "encryptId": "abc",
-            "cityPage": "杭州",
-            "stage": "ai_keep",
-            "reason": "AI JD 保留",
-            "active": "本周活跃",
-            "jd": "做 Agent",
-        }
-    )
-    original = path.read_text(encoding="utf-8")
-    again = ScreenLog(path)
-    again.load()
-    row = again.rows["id:abc"]
-    assert row["stage"] == "ai_keep"
-    assert row["jd"] == "做 Agent"
-    assert path.read_text(encoding="utf-8") == original
+def test_sqlite_store_upserts_merges_fields_and_collects_keywords(tmp_path: Path):
+    db_path = tmp_path / "screen-results" / "boss.db"
+    store = JobStore(db_path)
+    try:
+        store.upsert(
+            {
+                "encryptId": "abc_1",
+                "keyword": "AI Agent",
+                "company": "甲科技",
+                "job": "Agent 开发实习生",
+                "salary": "200-300/天",
+                "area": "杭州·西湖区",
+                "cityPage": "杭州",
+                "tags": "Python、RAG",
+                "degree": "本科",
+                "experience": "在校生",
+                "industry": "人工智能",
+                "scale": "100-499人",
+                "financing": "B轮",
+                "stage": "jd_queued",
+                "reason": "标题契合",
+            }
+        )
+        # 模拟点开详情后补全 JD 与 HR 活跃度，原有列表字段不丢失
+        store.upsert(
+            {
+                "encryptId": "abc_1",
+                "keyword": "大模型应用",
+                "active": "刚刚活跃",
+                "jd": "负责 Agent 工具调用与评测体系",
+                "stage": "ai_keep",
+                "reason": "【职责与技术】做 Agent。【对标与切入】retail-bench。【公司背景】人工智能。【排雷风险】无明显硬伤。",
+            }
+        )
+    finally:
+        store.close()
 
-    screen.upsert(
-        {
-            "keyword": "Agent开发",
-            "company": "乙",
-            "job": "运营",
-            "encryptId": "def",
-            "cityPage": "上海",
-            "stage": "rule_drop",
-            "reason": "规则 岗位名含：运营",
-        }
-    )
-    screen.upsert({"encryptId": "abc", "keyword": "工具开发"})
-    loaded = ScreenLog(path)
-    loaded.load()
-    assert loaded.rows["id:def"]["keywords"] == ["Agent开发"]
-    assert loaded.rows["id:abc"]["keywords"] == ["AI Agent", "工具开发"]
-
-
-def test_seen_index_prefers_newer_stamp_then_later_keyword(tmp_path: Path):
-    older = tmp_path / "20260921-010101_实习_AI-Agent.jsonl"
-    newer_first = tmp_path / "20260922-010101_实习_AI-Agent.jsonl"
-    newer_second = tmp_path / "20260922-010101_实习_Agent开发.jsonl"
-    row = {
-        "company": "甲",
-        "job": "开发",
-        "encryptId": "abc",
-        "cityPage": "杭州",
-    }
-    older.write_text(_line({**row, "stage": "ai_title_drop", "reason": "AI 标题 旧"}), encoding="utf-8")
-    newer_first.write_text(_line({**row, "stage": "jd_wait", "reason": "AI 标题 可点；将点详情"}), encoding="utf-8")
-    newer_second.write_text(_line({**row, "stage": "ai_keep", "reason": "AI JD 保留"}), encoding="utf-8")
-    before = newer_first.read_text(encoding="utf-8")
-    seen = load_seen(tmp_path, ["AI Agent", "Agent开发"])
-    assert seen["id:abc"]["stage"] == "ai_keep"
-    assert newer_first.read_text(encoding="utf-8") == before
+    reopened = JobStore(db_path)
+    try:
+        row = reopened.get("abc_1")
+        assert row is not None
+        assert row["stage"] == "ai_keep"
+        assert row["jd"] == "负责 Agent 工具调用与评测体系"
+        assert row["salary"] == "200-300/天"
+        assert row["tags"] == "Python、RAG"
+        assert row["degree"] == "本科"
+        assert row["industry"] == "人工智能"
+        assert row["keywords"] == ["AI Agent", "大模型应用"]
+        assert row["firstSeenAt"] <= row["updatedAt"]
+    finally:
+        reopened.close()
 
 
-def test_seen_index_same_stamp_follows_write_time_when_keyword_left_the_list(tmp_path: Path):
-    early = tmp_path / "20260921-150408_实习_智能体应用.jsonl"
-    late = tmp_path / "20260921-150408_实习_AI应用开发.jsonl"
-    row = {
-        "company": "甲",
-        "job": "开发",
-        "encryptId": "abc",
-        "cityPage": "杭州",
-    }
-    early.write_text(_line({**row, "stage": "jd_wait", "reason": "AI 标题 可点；将点详情"}), encoding="utf-8")
-    late.write_text(_line({**row, "stage": "ai_title_drop", "reason": "AI 标题 偏了"}), encoding="utf-8")
-    os.utime(early, ns=(1_000_000_000, 1_000_000_000))
-    os.utime(late, ns=(2_000_000_000, 2_000_000_000))
-    seen = load_seen(tmp_path, ["AI Agent", "Agent开发"])
-    assert seen["id:abc"]["stage"] == "ai_title_drop"
+def test_sqlite_store_returns_pending_jd_rows_with_captured_jd(tmp_path: Path):
+    store = JobStore(tmp_path / "boss.db")
+    try:
+        store.upsert(
+            {
+                "encryptId": "has_jd",
+                "company": "甲",
+                "job": "开发",
+                "cityPage": "杭州",
+                "jd": "正文内容",
+                "stage": "ai_jd_pending",
+                "reason": "JD请求失败",
+            }
+        )
+        store.upsert(
+            {
+                "encryptId": "no_jd",
+                "company": "乙",
+                "job": "开发",
+                "cityPage": "杭州",
+                "jd": "",
+                "stage": "ai_jd_pending",
+                "reason": "JD请求失败",
+            }
+        )
+        pending = store.pending_jd_rows()
+        assert [r["encryptId"] for r in pending] == ["has_jd"]
+    finally:
+        store.close()
 
 
-def test_revisit_skips_terminal_clicks_pending_and_retries_saved_jd():
-    assert next_step({"stage": "ai_keep", "cityPage": "杭州", "active": "刚刚活跃"}, "杭州", None, 3) == "skip"
-    assert next_step({"stage": "rule_drop", "cityPage": "杭州", "active": "本月活跃"}, "杭州", "岗位名含：运营", 3) == "skip"
-    assert next_step({"stage": "ai_keep", "cityPage": "杭州", "active": "本周活跃"}, "杭州", None, 3) == "reclass"
-    assert next_step({"stage": "ai_title_drop", "cityPage": "杭州", "active": "本周活跃"}, "杭州", None, 3) == "skip"
-    assert next_step({"stage": "ai_jd_drop", "cityPage": "杭州", "active": "本月活跃"}, "杭州", None, 3) == "skip"
-    stale_pending = {"stage": "jd_wait", "cityPage": "杭州", "reason": "AI 标题 可点；将点详情", "active": "本周活跃"}
-    assert next_step(stale_pending, "杭州", None, 2) == "click"
-    stale_title = {"stage": "ai_title_pending", "cityPage": "杭州", "active": "本周活跃"}
-    assert next_step(stale_title, "杭州", None, 3) == "title"
-    stale_jd = {"stage": "ai_jd_pending", "cityPage": "杭州", "jd": "做工具", "active": "本月活跃"}
-    assert next_step(stale_jd, "杭州", None, 0) == "jd"
+def test_revisit_skips_all_terminal_stages_and_advances_queued_jobs():
+    for terminal in ("ai_keep", "rule_drop", "ai_title_drop", "ai_jd_drop"):
+        assert next_step({"stage": terminal, "cityPage": "杭州"}, "杭州", "岗位名含：运营", 3) == "skip"
+
     assert next_step(None, "杭州", "岗位名含：运营", 3) == "rule"
     assert next_step(None, "杭州", None, 3) == "title"
-    pending = {"stage": "jd_wait", "cityPage": "杭州", "reason": "AI 标题 可点；本轮详情上限"}
-    assert next_step(pending, "杭州", None, 2) == "click"
-    assert next_step(pending, "杭州", None, 0) == "leave"
-    vague = {"stage": "jd_wait", "cityPage": "杭州", "reason": "AI 标题 看不准"}
-    assert next_step(vague, "杭州", None, 3) == "leave"
+
+    queued = {"stage": "jd_queued", "cityPage": "杭州"}
+    assert next_step(queued, "杭州", None, 2) == "click"
+    assert next_step(queued, "杭州", None, 0) == "leave"
+    assert next_step(queued, "其它", None, 2) == "leave"
+
+    parked = {"stage": "jd_park", "cityPage": "杭州"}
+    assert next_step(parked, "杭州", None, 3) == "leave"
+
     assert next_step({"stage": "ai_title_pending", "cityPage": "杭州"}, "杭州", None, 3) == "title"
     assert next_step({"stage": "ai_jd_pending", "cityPage": "杭州", "jd": "做工具"}, "杭州", None, 0) == "jd"
     assert next_step({"stage": "ai_jd_pending", "cityPage": "杭州", "jd": ""}, "杭州", None, 1) == "click"
     assert next_step({"stage": "ai_jd_pending", "cityPage": "杭州", "jd": ""}, "杭州", None, 0) == "leave"
-    other = {"stage": "jd_wait_other", "cityPage": "其它", "reason": "AI 标题 可点；工作地「其它」，本轮不点详情"}
-    assert next_step(other, "其它", None, 3) == "leave"
-    assert next_step(other, "上海", None, 3) == "title"
-
-
-def test_stored_inactive_hr_returns_a_reason_without_changing_the_saved_row():
-    row = {"stage": "ai_keep", "active": "本周活跃", "reason": "AI JD 做 Agent"}
-    original = dict(row)
-    assert stored_hr_drop_reason(row) == "规则 HR未近3天活跃：本周活跃"
-    assert row == original
-    assert stored_hr_drop_reason({"stage": "ai_keep", "active": "刚刚活跃"}) is None
-    assert stored_hr_drop_reason({"stage": "ai_jd_drop", "active": "本周活跃"}) is None
-
-
-def test_saved_jd_retry_omits_fields_that_are_not_stored():
-    job = saved_jd_job(
-        {
-            "job": "开发",
-            "company": "甲",
-            "area": "杭州",
-            "jd": "做工具",
-            "active": "刚刚活跃",
-            "recruiterTitle": "猎头",
-            "degree": "本科",
-            "salary": "200-300/天",
-        },
-        job="开发实习生",
-        company="",
-        area="",
-        href="/job_detail/abc.html",
-        encrypt_id="abc",
-    )
-    assert job["job"] == "开发实习生"
-    assert job["company"] == "甲"
-    assert job["jd"] == "做工具"
-    assert job["salary"] == "200-300/天"
-    assert job["degree"] == ""
-    assert job["experience"] == ""
-    assert job["industry"] == ""
-    assert job["scale"] == ""
-    assert job["financing"] == ""
-    assert job["recruiterTitle"] == ""
-    stored_area = saved_jd_job(
-        {"company": "甲", "job": "开发", "area": "上海·浦东新区", "jd": "做工具"},
-        job="开发",
-        company="甲",
-        area="",
-        href="",
-        encrypt_id="abc",
-    )
-    assert classify_city(stored_area["area"]) == "上海"
-
-
-def _line(row: dict) -> str:
-    return json.dumps(row, ensure_ascii=False) + "\n"
 
 
 def test_list_json_and_detail_fields():
@@ -348,14 +297,20 @@ def test_list_json_and_detail_fields():
             "zpData": {
                 "jobList": [
                     {
-                        "encryptId": "abc_1",
+                        "encryptJobId": "abc_1",
                         "jobName": "Agent 开发",
+                        "salaryDesc": "250-300元/天",
                         "brandName": "甲",
+                        "brandIndustry": "人工智能",
+                        "brandScaleName": "100-499人",
+                        "brandStageName": "B轮",
+                        "jobDegree": "本科",
+                        "jobExperience": "在校/应届",
                         "cityName": "杭州",
                         "areaDistrict": "西湖区",
                         "businessDistrict": "西溪",
-                        "activeTimeDesc": "刚刚活跃",
                         "skills": ["Python", "RAG"],
+                        "bossName": "王先生",
                         "bossTitle": "技术负责人",
                     }
                 ]
@@ -364,9 +319,23 @@ def test_list_json_and_detail_fields():
     )
     cards = ingest_job_list(body)
     assert len(cards) == 1
-    assert cards[0].area == "杭州·西湖区·西溪"
-    assert cards[0].tags == "Python、RAG"
-    assert cards[0].active == "刚刚活跃"
+    c = cards[0]
+    assert c.encrypt_id == "abc_1"
+    assert c.area == "杭州·西湖区·西溪"
+    assert c.salary == "250-300元/天"
+    assert c.tags == "Python、RAG"
+    assert c.recruiter == "王先生"
+    assert c.recruiter_title == "技术负责人"
+    assert c.degree == "本科"
+    assert c.experience == "在校/应届"
+    assert c.industry == "人工智能"
+    assert c.scale == "100-499人"
+    assert c.financing == "B轮"
+
+    merged = overlay(Card(encrypt_id="abc_1", job="Agent 开发", company="甲", area="杭州"), c)
+    assert merged.salary == "250-300元/天"
+    assert merged.tags == "Python、RAG"
+
     detail = parse_detail(
         json.dumps(
             {
@@ -389,26 +358,6 @@ def test_list_json_and_detail_fields():
     assert detail["financing"] == ""
     assert detail["active"] == "本月活跃"
     assert detail["jd"] == "做工具"
-
-
-def test_continue_chat_does_not_send_again():
-    assert button_action("继续沟通") == "opened"
-    assert button_action(" 立即沟通 ") == "send"
-    assert button_action("已沟通") == "absent"
-    ids, image = _parse_args(["abc", "--image", "def"])
-    assert ids == ["abc", "def"]
-    assert image is True
-    assert _parse_args(["abc"]) == (["abc"], False)
-
-
-def test_opened_chats_round_trip_uses_jsonl(tmp_path: Path):
-    path = tmp_path / "opened-chats.jsonl"
-    append_opened(path, "first-id")
-    append_opened(path, "second-id")
-    append_opened(path, "first-id")
-    assert load_ids(path) == {"first-id", "second-id"}
-    row = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
-    assert set(row) == {"encryptId", "at"}
 
 
 def test_detail_gap_stays_within_half_and_full():
@@ -465,18 +414,6 @@ def test_second_process_cannot_take_the_lock(tmp_path: Path):
     release(again)
 
 
-def test_hidden_continue_button_is_not_opened():
-    assert first_visible_action([("继续沟通", False), ("立即沟通", True)]) == ("send", 1)
-    assert first_visible_action([("继续沟通", False)]) == ("absent", None)
-    assert first_visible_action([(" 继续沟通 ", True)]) == ("opened", 0)
-
-
-def test_leading_hyphen_encrypt_id_goes_after_options():
-    assert _parse_args(["--image", "--", "-abc_1"]) == (["-abc_1"], True)
-    with pytest.raises(SystemExit):
-        _parse_args(["-abc_1"])
-
-
 def test_take_lock_refuses_when_held(tmp_path: Path):
     held = acquire(tmp_path / "run.lock")
     try:
@@ -485,43 +422,6 @@ def test_take_lock_refuses_when_held(tmp_path: Path):
         assert caught.value.code == 1
     finally:
         release(held)
-
-
-def test_already_opened_does_not_open_detail():
-    assert next_chat_step("abc", {"abc"}) == "skip"
-    assert next_chat_step("abc", set()) == "open"
-    assert next_chat_step("bad id", set()) == "invalid"
-
-
-def test_failed_greeting_is_not_recorded_and_image_failure_keeps_the_record():
-    assert should_record("send", False) is False
-    assert should_record("absent", False) is False
-    assert should_record("opened", False) is True
-    assert should_record("send", True) is True
-
-
-def test_load_seen_ignores_another_directory(tmp_path: Path):
-    seen = tmp_path / "screen-results"
-    archive = tmp_path / "screen-experiments"
-    seen.mkdir()
-    archive.mkdir()
-    row = {
-        "company": "甲",
-        "job": "开发",
-        "stage": "ai_keep",
-        "cityPage": "杭州",
-        "reason": "AI JD 保留",
-    }
-    (seen / "20260922-010101_实习_A.jsonl").write_text(
-        json.dumps({**row, "encryptId": "seen-id"}) + "\n",
-        encoding="utf-8",
-    )
-    (archive / "20260922-020202_实习_A.jsonl").write_text(
-        json.dumps({**row, "encryptId": "arch-id", "stage": "ai_title_drop"}) + "\n",
-        encoding="utf-8",
-    )
-    loaded = load_seen(seen, ["A"])
-    assert set(loaded) == {"id:seen-id"}
 
 
 def test_url_read_failure_does_not_count_as_verification_gone():
@@ -533,7 +433,7 @@ def test_url_read_failure_does_not_count_as_verification_gone():
         ]
     )
     stop = threading.Event()
-    assert halt_if_risk(page, stop, False, "代聊", poll_seconds=0) is False
+    assert halt_if_risk(page, stop, False, "筛选", poll_seconds=0) is False
     assert page.urls == []
     assert not stop.is_set()
 
@@ -541,7 +441,7 @@ def test_url_read_failure_does_not_count_as_verification_gone():
 def test_url_read_failure_stops_when_on_risk_is_stop():
     page = _UrlPage([RuntimeError("closed")])
     stop = threading.Event()
-    assert halt_if_risk(page, stop, True, "代聊", poll_seconds=0) is True
+    assert halt_if_risk(page, stop, True, "筛选", poll_seconds=0) is True
     assert stop.is_set()
 
 
@@ -555,7 +455,6 @@ def test_setup_logging_writes_to_file(tmp_path: Path):
     content = target.read_text(encoding="utf-8")
     assert "测试写入运行日志" in content
 
-    # 当 log_file 为 None 时只打控制台，不报错
     setup_logging(None)
     assert not any(isinstance(handler, logging.FileHandler) for handler in logging.getLogger().handlers)
 
@@ -568,17 +467,170 @@ def test_load_settings_log_file_options(tmp_path: Path):
         "prompts": {"title": "t", "jd": "j"},
         "codes": {"city": {"杭州": "101210100"}},
     }
-    # 自定义路径
     p1 = tmp_path / "b1.yaml"
     p1.write_text(yaml.safe_dump({**base_data, "logFile": "logs/test.log"}), encoding="utf-8")
     s1 = load_settings(p1)
     assert s1.log_file == tmp_path / "logs" / "test.log"
 
-    # 留空禁用
     p2 = tmp_path / "b2.yaml"
     p2.write_text(yaml.safe_dump({**base_data, "logFile": ""}), encoding="utf-8")
     s2 = load_settings(p2)
     assert s2.log_file is None
+
+
+def test_detail_attempts_only_increment_after_click():
+    session: Any = Session.__new__(Session)
+    session.detail_attempts = 0
+    session.settings = type("Settings", (), {"detail_limit": 1})()
+    session.stop = threading.Event()
+    session.page = _DetailPage()
+    session._halt = lambda _reason: False
+    session._card_locator = lambda _encrypt_id: _DetailTarget()
+    click_count = 0
+
+    def click(_target):
+        nonlocal click_count
+        click_count += 1
+
+    session._human_click = click
+    session._job_from_detail = lambda _card, _body: None
+    session._pause_between_jobs = lambda: None
+
+    pool: Any = _ImmediatePool()
+    session._click_details("AI Agent", [Card(encrypt_id="one", job="开发", company="甲")], pool, [])
+
+    assert session.detail_attempts == 1
+    assert click_count == 1
+
+
+def test_missing_detail_card_does_not_consume_detail_limit():
+    session: Any = Session.__new__(Session)
+    session.detail_attempts = 0
+    session.settings = type("Settings", (), {"detail_limit": 1})()
+    session.stop = threading.Event()
+    session.page = _DetailPage()
+    session._halt = lambda _reason: False
+    targets = iter([None, _DetailTarget()])
+    session._card_locator = lambda _encrypt_id: next(targets)
+    session._human_click = lambda _target: None
+    session._job_from_detail = lambda _card, _body: None
+    session._pause_between_jobs = lambda: None
+
+    pool: Any = _ImmediatePool()
+    cards = [Card(encrypt_id="one", job="开发", company="甲"), Card(encrypt_id="two", job="开发", company="乙")]
+    session._click_details("AI Agent", cards, pool, [])
+
+    assert session.detail_attempts == 1
+
+
+def test_detail_timeout_does_not_retry_the_same_click():
+    session: Any = Session.__new__(Session)
+    session.detail_attempts = 0
+    session.settings = type("Settings", (), {"detail_limit": 1})()
+    session.stop = threading.Event()
+    session.page = _TimeoutDetailPage()
+    session._halt = lambda _reason: False
+    session._card_locator = lambda _encrypt_id: _DetailTarget()
+    click_count = 0
+
+    def click(_target):
+        nonlocal click_count
+        click_count += 1
+
+    session._human_click = click
+    session._job_from_detail = lambda _card, _body: None
+    session._pause_between_jobs = lambda: None
+
+    pool: Any = _ImmediatePool()
+    session._click_details("AI Agent", [Card(encrypt_id="one", job="开发", company="甲")], pool, [])
+
+    assert session.detail_attempts == 1
+    assert click_count == 1
+
+def test_detail_response_is_stored_before_stop_signal():
+    session: Any = Session.__new__(Session)
+    session.detail_attempts = 0
+    session.settings = type("Settings", (), {"detail_limit": 1, "black_recruiters": []})()
+    session.stop = threading.Event()
+    session.page = _DetailPage()
+    session._halt = lambda _reason: False
+    session._card_locator = lambda _encrypt_id: _DetailTarget()
+    session._human_click = lambda _target: None
+    stored: list[dict] = []
+    session.store = type("Store", (), {"upsert": lambda _self, row: stored.append(row) or row})()
+    session._job_from_detail = lambda card, _body: session.stop.set() or {
+        "encryptId": card.encrypt_id,
+        "company": card.company,
+        "job": card.job,
+        "active": "刚刚活跃",
+        "recruiter": "王",
+        "recruiterTitle": "工程师",
+        "jd": "岗位正文",
+    }
+    session._pause_between_jobs = lambda: None
+
+    pool: Any = _ImmediatePool()
+    session._click_details("AI Agent", [Card(encrypt_id="one", job="开发", company="甲")], pool, [])
+
+    assert stored == [
+        {
+            "encryptId": "one",
+            "company": "甲",
+            "job": "开发",
+            "active": "刚刚活跃",
+            "recruiter": "王",
+            "recruiterTitle": "工程师",
+            "jd": "岗位正文",
+            "keyword": "AI Agent",
+        }
+    ]
+
+
+class _ImmediatePool:
+    def submit(self, *_args, **_kwargs):
+        raise AssertionError("详情为空时不应提交 JD AI")
+
+
+class _DetailTarget:
+    def click(self):
+        return None
+
+
+class _DetailResponse:
+    def text(self):
+        return "{}"
+
+
+class _DetailWait:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    @property
+    def value(self):
+        return _DetailResponse()
+
+
+class _DetailPage:
+    def expect_response(self, _predicate, timeout: int):
+        assert timeout == 15_000
+        return _DetailWait()
+
+
+class _TimeoutDetailWait:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        raise TimeoutError("detail response timeout")
+
+
+class _TimeoutDetailPage:
+    def expect_response(self, _predicate, timeout: int):
+        assert timeout == 15_000
+        return _TimeoutDetailWait()
 
 
 class _UrlPage:

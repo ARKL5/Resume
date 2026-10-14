@@ -1,4 +1,4 @@
-# Agent 改这一份。对照页不改配置，只切换看哪份筛选结果。SCREEN_ONLY 在代码里，这里没有开聊开关。
+# Agent 改这一份。对照页不改配置，只读 SQLite 数据库。
 # detailLimit：-1 不设上限，0 不点 JD，正数是本轮最多点几次。onRisk：stop 遇人机/风控结束本轮，wait 暂停等人。
 keywords:
   - AI Agent
@@ -14,10 +14,9 @@ industry: []
 salary: []
 scale: []
 stage: []
-waitTime: 25
-keywordGapSeconds: 60
-sendImgResume: false
-screenResultsDir: screen-results
+waitTime: 28
+keywordGapSeconds: 90
+dbPath: screen-results/boss.db
 logFile: screen-results/screen.log
 detailLimit: 15
 onRisk: wait
@@ -26,9 +25,6 @@ ai:
   baseUrl: http://127.0.0.1:8317/v1
   apiKey: f77c118b061fbe85650bc9740e42a0fadc177085a3c29e4f
   model: deepseek-v4.1-flash
-
-greeting: |
-  您好，浙江理工大学，常驻杭州，每周 5 天，随时到岗。独立做过零售客服 Agent：在 tau2-bench 上做确定性评测和优化，任务通过率80.7%（92/114），另有用户隔离的可靠 RAG 后端。期待沟通。
 
 blacklist:
   companies: []

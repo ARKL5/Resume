@@ -1,41 +1,52 @@
-"""列表 JSON 与 DOM 卡片。只吃 Boss 已经返回的字段。"""
+"""列表 JSON 与 DOM 卡片解析，提取列表与详情接口的全部岗位事实。"""
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from boss_screen.rules import classify_city, is_search_city, join_area
 
 
 @dataclass
 class Card:
+    encrypt_id: str = ""
     job: str = ""
     company: str = ""
+    salary: str = ""
     area: str = ""
-    active: str = ""
     href: str = ""
-    encrypt_id: str = ""
     tags: str = ""
     recruiter: str = ""
-
-    def with_active(self, active: str) -> Card:
-        return replace(self, active=active)
+    recruiter_title: str = ""
+    degree: str = ""
+    experience: str = ""
+    industry: str = ""
+    scale: str = ""
+    financing: str = ""
 
 
 def overlay(base: Card, extra: Card) -> Card:
     area = base.area
     if classify_city(base.area) == "其它" and is_search_city(classify_city(extra.area)):
         area = extra.area
+    elif not area:
+        area = extra.area
     return Card(
-        job=base.job,
-        company=base.company,
-        area=area,
-        active=_first(base.active, extra.active),
-        href=_first(base.href, extra.href),
         encrypt_id=_first(base.encrypt_id, extra.encrypt_id),
+        job=_first(base.job, extra.job),
+        company=_first(base.company, extra.company),
+        salary=_first(base.salary, extra.salary),
+        area=area,
+        href=_first(base.href, extra.href),
         tags=_first(base.tags, extra.tags),
         recruiter=_first(base.recruiter, extra.recruiter),
+        recruiter_title=_first(base.recruiter_title, extra.recruiter_title),
+        degree=_first(base.degree, extra.degree),
+        experience=_first(base.experience, extra.experience),
+        industry=_first(base.industry, extra.industry),
+        scale=_first(base.scale, extra.scale),
+        financing=_first(base.financing, extra.financing),
     )
 
 
@@ -70,7 +81,6 @@ def _card_from_item(job: dict) -> Card | None:
     encrypt_id = _first(_text(job, "encryptId"), _text(job, "encryptJobId"), _text(job_info, "encryptId"))
     if not encrypt_id:
         return None
-    active = _active(job) or _active(boss)
     job_name = _first(_text(job, "jobName"), _text(job_info, "jobName"))
     company = _first(_text(job, "brandName"), _text(brand, "brandName"), _text(job, "companyName"))
     if not job_name and not company:
@@ -78,17 +88,45 @@ def _card_from_item(job: dict) -> Card | None:
     city = _first(_text(job, "cityName"), _text(job_info, "locationName"), _text(job, "city"))
     district = _first(_text(job, "areaDistrict"), _text(job, "district"))
     area = join_area(city, district, _text(job, "businessDistrict"))
+    salary = _first(_text(job, "salaryDesc"), _text(job_info, "salaryDesc"))
     tags = _labels(job, "skills", "jobLabels") or _labels(job_info, "skills", "jobLabels")
-    recruiter = _first(_text(job, "bossTitle"), _text(boss, "title"), _text(job, "bossJobName"))
+    recruiter = _first(_text(job, "bossName"), _text(boss, "name"))
+    recruiter_title = _first(_text(job, "bossTitle"), _text(boss, "title"), _text(job, "bossJobName"))
+    degree = _first(_text(job, "jobDegree"), _text(job, "degreeName"), _text(job_info, "degreeName"))
+    experience = _first(_text(job, "jobExperience"), _text(job, "experienceName"), _text(job_info, "experienceName"))
+    industry = _first(
+        _text(job, "brandIndustry"),
+        _text(brand, "industryName"),
+        _text(brand, "brandIndustryName"),
+        _text(job_info, "industryName"),
+    )
+    scale = _first(
+        _text(job, "brandScaleName"),
+        _text(brand, "scaleName"),
+        _text(brand, "brandScaleName"),
+        _text(job_info, "scaleName"),
+    )
+    financing = _first(
+        _text(job, "brandStageName"),
+        _text(brand, "stageName"),
+        _text(brand, "brandStageName"),
+        _text(job_info, "stageName"),
+    )
     return Card(
+        encrypt_id=encrypt_id,
         job=job_name,
         company=company,
+        salary=salary,
         area=area,
-        active=active,
         href=f"/job_detail/{encrypt_id}.html",
-        encrypt_id=encrypt_id,
         tags=tags,
         recruiter=recruiter,
+        recruiter_title=recruiter_title,
+        degree=degree,
+        experience=experience,
+        industry=industry,
+        scale=scale,
+        financing=financing,
     )
 
 
