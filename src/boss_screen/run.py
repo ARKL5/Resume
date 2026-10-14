@@ -55,13 +55,8 @@ SELF_RECOVERY_INTERVAL_SECONDS = 25.0
 MAX_SELF_RECOVERY_ATTEMPTS = 5
 
 
-def _release_hint(automatic: bool, retryable: bool, recoveries: int) -> str:
-    """暂停日志里的放行说明：自恢复能干的活不该推给值守。"""
-    if automatic:
-        return "验证后自动确认业务"
-    if retryable and recoveries < MAX_SELF_RECOVERY_ATTEMPTS:
-        return f"先自行重载恢复（已试 {recoveries}/{MAX_SELF_RECOVERY_ATTEMPTS}），也可发 SIGUSR1 明确继续"
-    return "处理后发送 SIGUSR1 明确继续"
+def _release_hint(automatic: bool) -> str:
+    return "验证后自动确认业务" if automatic else "处理后发送 SIGUSR1 明确继续"
 
 
 @dataclass
@@ -364,11 +359,10 @@ class Session:
             need_title_ai.append(card)
 
         outcomes = self._title_ai(keyword, need_title_ai)
-        for card, (action, reason) in zip(need_title_ai, outcomes, strict=True):
-            if self.stop.is_set():
-                return consecutive_seen
-            if self._halt("标题筛选完成后检查"):
-                return consecutive_seen
+        for card, outcome in zip(need_title_ai, outcomes, strict=True):
+            if outcome is None:
+                continue  # 未开始或被取消，不制造一条假的 AI 失败记录。
+            action, reason = outcome
             remaining = self._remaining_clicks()
             stage, clean_reason, should_click = title_disposition(
                 action, reason, classify_city(card.area), remaining
@@ -382,31 +376,31 @@ class Session:
                 stats.title_drop += 1
             elif stage == "ai_title_pending":
                 stats.title_fail += 1
-            if self.stop.is_set():
-                return consecutive_seen
             if should_click and card.encrypt_id not in attempted:
                 to_click.append(card)
 
-        self._click_details(keyword, to_click, jd_pool, jd_futures, stats)
+        # 熔断只拦新工作；本批所有已完成结果先持久化，再决定是否继续操作网页。
+        if not self.stop.is_set() and not self._halt("标题筛选完成后检查"):
+            self._click_details(keyword, to_click, jd_pool, jd_futures, stats)
         return consecutive_seen
 
     def _remaining_clicks(self) -> int:
         limit = self.settings.detail_limit
         return 2**31 - 1 if limit < 0 else max(0, limit - self.detail_attempts)
 
-    def _title_ai(self, keyword: str, cards: list[Card]) -> list[tuple[str | None, str]]:
+    def _title_ai(self, keyword: str, cards: list[Card]) -> list[tuple[str | None, str] | None]:
         if not cards:
             return []
 
         def one(card: Card) -> tuple[str | None, str]:
-            prompt = title_prompt(self.settings, keyword, card.company, card.job, card.tags)
             try:
+                prompt = title_prompt(self.settings, keyword, card.company, card.job, card.tags)
                 raw = complete(self.settings, prompt)
+                action, reason = parse_title_action(raw)
             except Exception as exc:
                 self._record_ai(False, retryable=is_retryable(exc))
                 log.warning("标题AI失败 | %s | %s | %s", card.company, card.job, exc)
                 return None, str(exc)
-            action, reason = parse_title_action(raw)
             # 回复看不懂是可重试的噪声，不该按确定性失败熔断。
             self._record_ai(action is not None, retryable=True)
             return action, reason
@@ -455,6 +449,7 @@ class Session:
                 self.detail_attempts += 1
                 stats.detail_clicks += 1
                 attempted.add(card.encrypt_id)
+                list_before_wait = self.facts.list_serial
                 deadline = time.monotonic() + 15
                 while not self.stop.is_set() and time.monotonic() < deadline:
                     if self._halt("等待目标详情"):
@@ -463,14 +458,23 @@ class Session:
                     if body is not None:
                         break
                     self._sleep(0.2)
+                # _sleep 内也可能完成恢复并跨过截止时间，出循环后再收一次已到达的正文。
+                body = body_cache.get(card.encrypt_id)
                 if body is None and not self.stop.is_set():
                     stats.detail_fail += 1
-                    self.facts.fail("目标岗位详情未返回，暂停整轮", "detail", retryable=True)
-                    if self._halt("等待岗位详情超时"):
-                        break
-                    body = body_cache.get(card.encrypt_id)
+                    # 等待中已经恢复过列表时，不再为同一次详情失败重载第二遍。
+                    if self.facts.list_serial == list_before_wait:
+                        self.facts.fail("目标岗位详情未返回", "detail", retryable=True)
+                        if self._halt("等待岗位详情超时"):
+                            break
+                        body = body_cache.get(card.encrypt_id)
             if body is None:
-                break
+                if self.stop.is_set():
+                    break
+                self.pending_cards.pop(card.encrypt_id, None)
+                self._write_card(keyword, card, "jd_queued", "详情未返回，保留待点，下轮再取")
+                self._pause_between_jobs()
+                continue
             attempted.add(card.encrypt_id)
             self.pending_cards.pop(card.encrypt_id, None)
             job = self._job_from_detail(card, body)
@@ -761,6 +765,7 @@ class Session:
             return True
         if self._pausing:
             return False
+        self.facts.check_failures()
         state = risk_state(self.page)
         fault = self.facts.fault
         if state is False and fault is None:
@@ -773,59 +778,74 @@ class Session:
         self._pausing = True
         self.resume.clear()
         serial = fault.serial if fault else self.facts.serial
-        automatic = bool(state is True or (fault and fault.verification))
+        verification_seen = state is True
+        automatic = bool(verification_seen or (fault and fault.verification))
         kind = fault.kind if fault else ("detail" if self.target_detail else "list")
         retryable = bool(fault and fault.retryable)
         allowed = automatic
-        last_report = 0.0
+        last_report: float | None = None
+        report_mode = ""
         recoveries = 0
-        last_recovery = time.monotonic()
+        next_recovery = time.monotonic() + SELF_RECOVERY_INTERVAL_SECONDS
         try:
             while not self.stop.is_set():
+                self.facts.check_failures()
+                state = risk_state(self.page)
+                verification_seen |= state is True
                 current = self.facts.fault
                 if current is not None and current.serial > serial:
                     serial = current.serial
-                    automatic = current.verification or risk_state(self.page) is True
+                    automatic = current.verification or verification_seen
                     kind = current.kind
                     retryable = current.retryable
                     allowed = automatic
                     self.resume.clear()
-                    last_report = 0
+                    last_report = None
+                if verification_seen and not automatic:
+                    # 验证页可以晚于网络故障出现；出现过就把恢复交给人，避免重载打断验证。
+                    automatic = allowed = True
                 if self.resume.is_set():
                     allowed = True
                     self.resume.clear()
-                fresh = (
-                    self.facts.detail_versions.get(self.target_detail, 0) > serial
-                    if kind == "detail" and self.target_detail
-                    else self.facts.list_serial > serial
-                )
-                if fresh and risk_state(self.page) is False and _landed(self.page, self.target_url):
-                    if allowed:
-                        self.facts.fault = None
-                        log.info("目标业务已恢复，继续")
-                        return False
-                    if recoveries and retryable:
-                        # 一次性接口/读取故障：自己重载拿回成功响应就算恢复，不占人工。
-                        self.facts.fault = None
-                        log.info("暂停自恢复成功，继续")
-                        return False
+                detail_fresh = self.facts.detail_versions.get(self.target_detail, 0) > serial
+                list_fresh = self.facts.list_serial > serial
+                fresh = detail_fresh if kind == "detail" and self.target_detail else list_fresh
+                # 仅自动重载过的瞬时故障可退回列表继续；保留目标身份，缺失正文由调用方显式留待下轮。
+                list_recovered = retryable and recoveries > 0 and list_fresh
                 if (
-                    not automatic
-                    and retryable
-                    and recoveries < MAX_SELF_RECOVERY_ATTEMPTS
-                    and time.monotonic() - last_recovery >= SELF_RECOVERY_INTERVAL_SECONDS
+                    (fresh or list_recovered)
+                    and (allowed or retryable)
+                    and state is False
+                    and _landed(self.page, self.target_url)
                 ):
+                    self.facts.fault = None
+                    suffix = "（目标列表恢复，缺失详情留待下轮）" if kind == "detail" and not detail_fresh else ""
+                    log.info("目标业务已恢复，继续%s", suffix)
+                    return False
+                can_retry = retryable and not automatic
+                now = time.monotonic()
+                if can_retry and recoveries < MAX_SELF_RECOVERY_ATTEMPTS and now >= next_recovery:
                     recoveries += 1
-                    last_recovery = time.monotonic()
-                    self._self_recover(kind, recoveries)
-                if time.monotonic() - last_report >= 60 or last_report == 0:
-                    log.warning(
-                        "暂停等人：%s%s；%s；需在原浏览器恢复目标业务",
-                        current.reason if current else reason,
-                        f"（{current.hint}）" if current and current.hint else "",
-                        _release_hint(automatic, retryable, recoveries),
-                    )
-                    last_report = time.monotonic()
+                    self._self_recover(recoveries)
+                    next_recovery = time.monotonic() + SELF_RECOVERY_INTERVAL_SECONDS
+                    continue  # 导航中可能收到新故障或验证页，先重新检查再报告。
+                # 最后一次导航也要给业务响应留时间，不能刚发出请求就报预算耗尽。
+                recovering = can_retry and (recoveries < MAX_SELF_RECOVERY_ATTEMPTS or now < next_recovery)
+                mode = "recovering" if recovering else "human"
+                if mode != report_mode or last_report is None or now - last_report >= 60:
+                    if recovering:
+                        log.info(
+                            "自动恢复中：%s；已重载 %s/%s 次",
+                            current.reason if current else reason, recoveries, MAX_SELF_RECOVERY_ATTEMPTS,
+                        )
+                    else:
+                        log.warning(
+                            "暂停等人：%s%s；%s；需在原浏览器恢复目标业务",
+                            current.reason if current else reason,
+                            f"（{current.hint}）" if current and current.hint else "",
+                            _release_hint(automatic),
+                        )
+                    last_report, report_mode = now, mode
                 try:
                     self.page.wait_for_timeout(250)
                 except Exception:
@@ -835,12 +855,8 @@ class Session:
         finally:
             self._pausing = False
 
-    def _self_recover(self, kind: str, attempt: int) -> None:
-        """暂停期间自己重载目标页，制造一次新的成功响应；风控码与验证页到不了这里。"""
+    def _self_recover(self, attempt: int) -> None:
         log.info("暂停自恢复 %s/%s：重新加载目标页", attempt, MAX_SELF_RECOVERY_ATTEMPTS)
-        if kind == "detail":
-            # 详情响应不会因为重载列表而重来，恢复判据交回列表序号。
-            self.target_detail = ""
         try:
             self._goto(self.target_url)
         except Exception as exc:
@@ -867,24 +883,32 @@ class Session:
         return True
 
 
-def _parallel(label: str, cards: list[Card], fn, stop: threading.Event, idle) -> list[tuple[str | None, str]]:
+def _parallel(label: str, cards: list[Card], fn, stop: threading.Event, idle) -> list[tuple[str | None, str] | None]:
     log.info("%s 并行 %s 张", label, len(cards))
-    out: list[tuple[str | None, str]] = [(None, label + "未返回")] * len(cards)
+
+    def attempt(card: Card):
+        return None if stop.is_set() else fn(card)
+
     pool = ThreadPoolExecutor(max_workers=AI_PARALLELISM)
     try:
-        futures = [pool.submit(fn, card) for card in cards]
-        for index, future in enumerate(futures):
+        futures = [pool.submit(attempt, card) for card in cards]
+        for future in futures:
             while not future.done() and not stop.is_set():
                 idle()
             if stop.is_set():
-                future.cancel()
-                continue
-            try:
-                out[index] = future.result()
-            except Exception as exc:
-                out[index] = (None, str(exc))
+                break
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
+    # 等所有在途任务收尾后再收结果，stop 不等于「丢弃已完成结果」。
+    out: list[tuple[str | None, str] | None] = []
+    for future in futures:
+        if future.cancelled():
+            out.append(None)
+            continue
+        try:
+            out.append(future.result())
+        except Exception as exc:
+            out.append((None, str(exc)))
     return out
 
 

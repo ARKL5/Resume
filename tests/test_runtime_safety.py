@@ -273,6 +273,340 @@ def test_unknown_fault_needs_explicit_resume_even_after_success(session):
     assert session.facts.fault is None
 
 
+@pytest.fixture
+def clock(session, monkeypatch):
+    now = SimpleNamespace(seconds=0.0)
+    monkeypatch.setattr(run_mod.time, "monotonic", lambda: now.seconds)
+
+    def wait(ms):
+        now.seconds += ms / 1000
+        session.page.tick()
+
+    session.page.wait_for_timeout = wait
+    return now
+
+
+def test_auto_recovery_has_no_human_alert_and_watch_accepts_completion(session, clock, caplog, tmp_path):
+    session.facts.fail("网络失败", retryable=True)
+    reloads = []
+
+    def goto(url):
+        reloads.append(url)
+        respond(session.facts, listing())
+
+    session._goto = goto
+    with caplog.at_level(logging.INFO, logger="boss_screen"):
+        assert session._halt("异常") is False
+    messages = [record.message for record in caplog.records]
+    assert reloads == [URL]
+    assert not any("暂停等人" in message for message in messages)
+    assert any("目标业务已恢复，继续" in message for message in messages)
+    p = tmp_path / "recovery.log"
+    p.write_text("INFO 流式筛选开始\n" + "\n".join(messages) + "\nINFO 筛选结果：完成\n")
+    assert watch_log(p, lambda: False, out=io.StringIO()) == 0
+
+
+def test_watch_stays_attached_during_automatic_recovery(tmp_path):
+    p = tmp_path / "screen.log"
+    chunks = iter([
+        ("INFO 流式筛选开始\nINFO 自动恢复中：网络失败\n", True),
+        ("INFO 目标业务已恢复，继续\n", True),
+        ("INFO 筛选结果：完成\n", False),
+    ])
+
+    def alive():
+        text, running = next(chunks)
+        with p.open("a") as handle:
+            handle.write(text)
+        return running
+
+    assert watch_log(p, alive, poll_seconds=0, out=io.StringIO()) == 0
+
+
+def test_exhausted_automatic_recovery_alerts_watch_only_after_last_response_wait(session, clock, caplog, tmp_path):
+    session.facts.fail("网络失败", retryable=True)
+    reloads = []
+    session._goto = lambda url: reloads.append(url)
+    deadline = run_mod.SELF_RECOVERY_INTERVAL_SECONDS * (run_mod.MAX_SELF_RECOVERY_ATTEMPTS + 1)
+    session.page.tick = lambda: session.stop.set() if clock.seconds > deadline + 1 else None
+    with caplog.at_level(logging.INFO, logger="boss_screen"):
+        assert session._halt("异常") is True
+    messages = [record.message for record in caplog.records]
+    alert_index = next(i for i, message in enumerate(messages) if "暂停等人" in message)
+    attempts_before_alert = [message for message in messages[:alert_index] if "重新加载目标页" in message]
+    assert len(attempts_before_alert) == run_mod.MAX_SELF_RECOVERY_ATTEMPTS
+    assert len(reloads) == run_mod.MAX_SELF_RECOVERY_ATTEMPTS
+    p = tmp_path / "exhausted.log"
+    p.write_text("\n".join(messages) + "\n")
+    assert watch_log(p, lambda: True, out=io.StringIO()) == 2
+
+
+def test_verification_appearing_during_recovery_is_not_reloaded(session, clock, caplog):
+    session.facts.fail("网络失败", retryable=True)
+    reloads = []
+    session._goto = lambda _url: reloads.append(session.page.url)
+    restored = False
+
+    def tick():
+        nonlocal restored
+        if reloads and clock.seconds < 80:
+            session.page.url = "https://www.zhipin.com/web/user/safe/verify-slider"
+        elif clock.seconds >= 80 and not restored:
+            session.page.url = URL
+            respond(session.facts, listing())
+            restored = True
+        if clock.seconds > 100:
+            session.stop.set()
+
+    session.page.tick = tick
+    with caplog.at_level(logging.INFO, logger="boss_screen"):
+        assert session._halt("异常") is False
+    assert reloads == [URL]
+    assert any("暂停等人" in record.message for record in caplog.records)
+    assert session.facts.fault is None
+
+
+def test_title_breaker_saves_finished_results_and_does_not_start_remaining_cards(session, monkeypatch):
+    monkeypatch.setattr(run_mod, "AI_PARALLELISM", 1)
+    session.settings.title_prompt = "提示词"
+    session._sleep = lambda _seconds: False
+    session._click_details = lambda *_args: pytest.fail("熔断后不能再点击")
+    calls = []
+
+    def reply(*_args):
+        calls.append(1)
+        if len(calls) == 1:
+            return '{"action":"park","reason":"需进一步判断"}'
+        raise AiError("401 未授权", status=401)
+
+    monkeypatch.setattr(run_mod, "complete", reply)
+    cards = [Card(encrypt_id=f"job{i}", job="Python开发", company="甲", area="杭州") for i in range(8)]
+    with ThreadPoolExecutor(1) as pool:
+        session._process_batch("Agent", cards, 0, pool, [])
+    assert session.stop.is_set()
+    assert len(calls) == 4
+    assert session.store.get("job0")["stage"] == "jd_park"
+    assert all(session.store.get(f"job{i}")["stage"] == "ai_title_pending" for i in range(1, 4))
+    assert all(session.store.get(f"job{i}") is None for i in range(4, 8))
+
+
+def test_title_success_finishing_after_stop_is_still_saved(session, monkeypatch):
+    monkeypatch.setattr(run_mod, "AI_PARALLELISM", 2)
+    session.settings.title_prompt = "{job}"
+    session._sleep = lambda _seconds: False
+    session._click_details = lambda *_args: pytest.fail("停止后不能再点击")
+    started = threading.Event()
+    released = threading.Event()
+
+    def reply(_settings, prompt):
+        if prompt == "Python开发":
+            started.set()
+            assert released.wait(2)
+            return '{"action":"drop","reason":"不匹配"}'
+        assert started.wait(2)
+        session.stop.set()
+        released.set()
+        raise AiError("401 未授权", status=401)
+
+    monkeypatch.setattr(run_mod, "complete", reply)
+    cards = [Card(encrypt_id="slow", job="Python开发", company="甲"), Card(encrypt_id="fast", job="AI开发", company="乙")]
+    with ThreadPoolExecutor(1) as pool:
+        session._process_batch("Agent", cards, 0, pool, [])
+    assert session.store.get("slow")["stage"] == "ai_title_drop"
+    assert session.store.get("fast")["stage"] == "ai_title_pending"
+
+
+def test_missing_detail_after_list_recovery_is_deferred_and_next_card_is_processed(session, clock, monkeypatch):
+    cards = [Card(encrypt_id=ident, job="Python开发", company="甲", area="杭州") for ident in ("one", "two")]
+    for card in cards:
+        session._write_card("Agent", card, "jd_queued", "标题可点")
+    clicked = []
+    session._card_locator = lambda ident: ident
+
+    def click(ident):
+        clicked.append(ident)
+        if ident == "two":
+            respond(session.facts, detail(ident), DETAIL)
+        return True
+
+    def goto(_url):
+        respond(session.facts, listing(more=True))
+        respond(session.facts, detail("other"), DETAIL)
+
+    session._human_click = click
+    session._goto = goto
+    monkeypatch.setattr(run_mod, "jd_prompt", lambda *_args: "提示词")
+    monkeypatch.setattr(run_mod, "complete", lambda *_args: '{"keep":true,"reason":"匹配"}')
+    stats = KeywordStats()
+    with ThreadPoolExecutor(1) as pool:
+        session._click_details("Agent", cards, pool, [], stats)
+        assert clicked == ["one", "two"]
+        session._click_details("Agent", cards, pool, [])
+    assert clicked == ["one", "two"]
+    deferred = session.store.get("one")
+    assert deferred["stage"] == "jd_queued"
+    assert not deferred["jd"]
+    assert "下轮" in deferred["reason"]
+    assert session.store.get("two")["stage"] == "ai_keep"
+    assert session.store.get("other") is None
+    assert stats.detail_fail == 1
+    assert stats.detail_ok == 1
+    assert not session.pending_cards
+    assert not session.stop.is_set()
+
+
+def test_detail_arriving_during_recovery_inside_a_sleep_is_saved(session, clock, monkeypatch):
+    card = Card(encrypt_id="one", job="Python开发", company="甲", area="杭州")
+    session._write_card("Agent", card, "jd_queued", "标题可点")
+    session._card_locator = lambda _ident: object()
+
+    def click(_target):
+        request = SimpleNamespace(url=DETAIL)
+        session.facts.on_request(request)
+        session.facts.on_failed(request)
+        return True
+
+    reloads = []
+
+    def goto(url):
+        reloads.append(url)
+        respond(session.facts, listing())
+        respond(session.facts, detail(), DETAIL)
+
+    session._human_click = click
+    session._goto = goto
+    monkeypatch.setattr(run_mod, "jd_prompt", lambda *_args: "提示词")
+    monkeypatch.setattr(run_mod, "complete", lambda *_args: '{"keep":true,"reason":"匹配"}')
+    stats = KeywordStats()
+    with ThreadPoolExecutor(1) as pool:
+        session._click_details("Agent", [card], pool, [], stats)
+    assert reloads == [URL]
+    assert session.store.get("one")["stage"] == "ai_keep"
+    assert session.store.get("one")["jd"]
+    assert stats.detail_ok == 1
+    assert stats.detail_fail == 0
+    assert session.detail_attempts == 1
+
+
+def test_single_failed_list_request_without_followup_gets_automatic_recovery(session, clock):
+    respond(session.facts, listing(more=True))
+    request = SimpleNamespace(url=LIST)
+    session.facts.on_request(request)
+    session.facts.on_failed(request)
+    assert session.facts.fault is None
+    clock.seconds = 10
+    reloads = []
+
+    def goto(url):
+        reloads.append(url)
+        respond(session.facts, listing())
+
+    session._goto = goto
+    assert session._halt("滚动期间检查") is False
+    assert reloads == [URL]
+    assert session.facts.fault is None
+
+
+def test_single_failed_request_recovers_through_the_streaming_loop(session, clock, caplog):
+    respond(session.facts, listing(more=True))
+    request = SimpleNamespace(url=LIST)
+    session.facts.on_request(request)
+    session.facts.on_failed(request)
+    session.page.mouse = SimpleNamespace(wheel=lambda *_args: None)
+    session.page.tick = lambda: session.stop.set() if clock.seconds > 100 else None
+    session._process_batch = lambda _kw, _cards, seen, *_args: seen
+    reloads = []
+
+    def goto(url):
+        reloads.append(url)
+        respond(session.facts, listing(items=[]))
+
+    session._goto = goto
+    with caplog.at_level(logging.INFO, logger="boss_screen"):
+        session._stream_list("Agent")
+    assert reloads == [URL]
+    assert not session.stop.is_set()
+    assert session.facts.fault is None
+    assert not any("暂停等人" in record.message for record in caplog.records)
+
+
+def test_late_success_after_the_last_reload_does_not_raise_a_human_alert(session, clock, caplog):
+    session.facts.fail("网络失败", retryable=True)
+    attempts = []
+    session._goto = lambda _url: attempts.append(clock.seconds)
+
+    def tick():
+        if len(attempts) == run_mod.MAX_SELF_RECOVERY_ATTEMPTS and clock.seconds >= attempts[-1] + 1:
+            respond(session.facts, listing())
+        if clock.seconds > 200:
+            session.stop.set()
+
+    session.page.tick = tick
+    with caplog.at_level(logging.INFO, logger="boss_screen"):
+        assert session._halt("异常") is False
+    assert len(attempts) == run_mod.MAX_SELF_RECOVERY_ATTEMPTS
+    assert not any("暂停等人" in record.message for record in caplog.records)
+
+
+def test_recovered_transient_fault_before_first_reload_needs_no_signal(session, clock, caplog):
+    session.facts.fail("网络失败", retryable=True)
+    respond(session.facts, listing())
+    session._goto = lambda _url: pytest.fail("已有新的成功响应，不应再重载")
+    with caplog.at_level(logging.INFO, logger="boss_screen"):
+        assert session._halt("异常") is False
+    assert any("目标业务已恢复，继续" in record.message for record in caplog.records)
+
+
+def test_unrelated_detail_success_does_not_hide_a_failed_list_request(session, clock):
+    request = SimpleNamespace(url=LIST)
+    session.facts.on_request(request)
+    session.facts.on_failed(request)
+    respond(session.facts, detail(), DETAIL)
+    clock.seconds = 10
+    reloads = []
+
+    def goto(url):
+        reloads.append(url)
+        respond(session.facts, listing())
+
+    session._goto = goto
+    assert session._halt("列表检查") is False
+    assert reloads == [URL]
+
+
+def test_matching_success_during_debounce_avoids_reloading(session, clock):
+    request = SimpleNamespace(url=LIST)
+    session.facts.on_request(request)
+    session.facts.on_failed(request)
+    clock.seconds = 1
+    respond(session.facts, listing())
+    clock.seconds = 10
+    session._goto = lambda _url: pytest.fail("业务已自行恢复，不应重载")
+    assert session._halt("检查") is False
+    assert session.facts.fault is None
+
+
+def test_stale_request_failure_does_not_trigger_recovery_in_next_keyword(session, clock):
+    request = SimpleNamespace(url=LIST)
+    session.facts.on_request(request)
+    session.facts.reset()
+    session.facts.on_failed(request)
+    clock.seconds = 10
+    session._goto = lambda _url: pytest.fail("旧关键词的请求失败不能重载新关键词")
+    assert session._halt("检查") is False
+    assert session.facts.fault is None
+
+
+def test_retryable_network_noise_does_not_overwrite_an_ip_risk_fault(session):
+    respond(session.facts, json.dumps({"code": 35, "message": "IP异常", "zpData": {}}))
+    for _ in range(REQUEST_FAILURE_STREAK):
+        request = SimpleNamespace(url=LIST)
+        session.facts.on_request(request)
+        session.facts.on_failed(request)
+    assert "35" in session.facts.fault.reason
+    assert not session.facts.fault.retryable
+
+
 def test_retryable_fault_self_recovers_without_waiting_for_a_human(session, monkeypatch, caplog):
     session.facts.fail("岗位接口网络请求失败", "list", retryable=True)
     monkeypatch.setattr(run_mod, "SELF_RECOVERY_INTERVAL_SECONDS", 0.0)
@@ -287,7 +621,7 @@ def test_retryable_fault_self_recovers_without_waiting_for_a_human(session, monk
         assert session._halt("异常") is False
     assert reloads == [URL]
     assert session.facts.fault is None
-    assert any("暂停自恢复成功，继续" in record.message for record in caplog.records)
+    assert any("目标业务已恢复，继续" in record.message for record in caplog.records)
 
 
 def test_self_recovery_stops_after_the_attempt_budget(session, monkeypatch):

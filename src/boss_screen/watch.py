@@ -15,7 +15,7 @@ from boss_screen.proc_lock import default_lock_path, running_pid
 MILESTONE_MARKERS = (
     "流式筛选开始", "库内残留待评 JD", "收获新卡片", "ai_keep |", "已连续遇到",
     "列表接口确认结束", "滚动预算", "汇总：", "拟真长休", "词间冷却",
-    "目标业务已恢复，继续", "筛选结果：",
+    "自动恢复中", "暂停自恢复", "目标业务已恢复，继续", "筛选结果：",
 )
 ALERT_MARKERS = ("暂停等人", "停止本轮筛选", " ERROR ", "Traceback (most recent call last)")
 

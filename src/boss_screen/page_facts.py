@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -18,8 +19,9 @@ RISK_CODES: dict[int, str] = {
 # 可以在浏览器内验证后自行恢复的码；35 是 IP 级标记，验证没用，必须人工换出口。
 VERIFICATION_CODES = frozenset({31, 36, 37})
 CODE_MESSAGE_LIMIT = 60
-# 单次请求失败只当噪声；连续这么多次失败才认为业务真的断了。
+# 给网页自行补发留一点时间；连续失败或到期仍无同类成功响应，再交给运行器恢复。
 REQUEST_FAILURE_STREAK = 3
+REQUEST_FAILURE_GRACE_SECONDS = 3.0
 
 
 class ApiError(ValueError):
@@ -113,7 +115,7 @@ class PageFacts:
         self.has_more: bool | None = None
         self.list_serial = 0
         self.fault: Fault | None = None
-        self.failed_streak = 0
+        self.failed_requests: dict[str, tuple[int, float]] = {}
 
     def fail(
         self,
@@ -124,6 +126,9 @@ class PageFacts:
         hint: str = "",
         retryable: bool = False,
     ) -> None:
+        # 网络噪声不能覆盖已知风控或契约故障，否则会错误地转入自动重载。
+        if retryable and self.fault is not None and not self.fault.retryable:
+            return
         self.serial += 1
         self.fault = Fault(reason, kind, self.serial, verification, hint, retryable)
 
@@ -135,10 +140,20 @@ class PageFacts:
         generation = self.requests.pop(id(request), None)
         if generation != self.generation:
             return
-        # 单次失败常见于切页/导航竞态；连续失败才认定业务断了。
-        self.failed_streak += 1
-        if self.failed_streak >= REQUEST_FAILURE_STREAK:
-            self.fail("岗位接口网络请求失败", endpoint(request.url), retryable=True)
+        kind = endpoint(request.url)
+        count, since = self.failed_requests.get(kind, (0, time.monotonic()))
+        self.failed_requests[kind] = (count + 1, since)
+        if kind == "list":
+            self.has_more = None
+        self.check_failures()
+
+    def check_failures(self) -> None:
+        """由运行器轮询到期失败；不依赖网页再发第二、第三个请求。"""
+        now = time.monotonic()
+        for kind, (count, since) in tuple(self.failed_requests.items()):
+            if count >= REQUEST_FAILURE_STREAK or now - since >= REQUEST_FAILURE_GRACE_SECONDS:
+                del self.failed_requests[kind]
+                self.fail("岗位接口网络请求失败", kind, retryable=True)
 
     def on_response(self, response) -> None:
         kind = endpoint(response.url)
@@ -163,7 +178,7 @@ class PageFacts:
                 self.cards.update((c.encrypt_id, c) for c in cards)
                 self.has_more = data["hasMore"]
                 self.list_serial = self.serial
-                self.failed_streak = 0
+                self.failed_requests.pop(kind, None)
             else:
                 parsed = parse_detail(body)
                 ident = parsed["encryptId"]
@@ -172,7 +187,7 @@ class PageFacts:
                 self.serial += 1
                 self.details[ident] = body
                 self.detail_versions[ident] = self.serial
-                self.failed_streak = 0
+                self.failed_requests.pop(kind, None)
         except Exception as exc:
             reason = str(exc) if isinstance(exc, ApiError) else "岗位接口读取失败"
             self.fail(
