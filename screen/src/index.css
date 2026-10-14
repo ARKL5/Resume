@@ -1090,24 +1090,6 @@ a {
   height: 10px;
 }
 
-/* 瑞士技术词标记 */
-.swiss-tech-token {
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 700;
-  border: 1px solid var(--swiss-black);
-  background: var(--swiss-paper);
-  color: var(--swiss-black);
-  padding: 0 4px;
-  margin: 0 2px;
-}
-
-.dossier-row.row-benchmark .swiss-tech-token {
-  border-color: var(--swiss-green);
-  background: #ffffff;
-  color: var(--swiss-green);
-}
-
 .swiss-missing-notice {
   padding: 40px 20px;
   display: flex;

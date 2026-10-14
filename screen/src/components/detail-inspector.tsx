@@ -10,54 +10,6 @@ type Props = {
   laneTitle?: string
 }
 
-// 瑞士风格关键词高亮识别器
-const TECH_KEYWORDS = [
-  "retail-bench",
-  "rag-backend",
-  "tau2-bench",
-  "Agent开发",
-  "Agent",
-  "智能体",
-  "RAG",
-  "LLM",
-  "大模型",
-  "Tool Calling",
-  "两阶段提交",
-  "确定性评测",
-  "混合检索",
-  "异步锁序",
-  "知识库",
-  "FastAPI",
-  "PostgreSQL",
-  "pgvector",
-  "LangGraph",
-  "LangChain",
-  "Python",
-  "Pydantic",
-  "pytest",
-  "全栈",
-]
-
-const ESCAPED_TECH = TECH_KEYWORDS.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-const TECH_REGEX = new RegExp(`(${ESCAPED_TECH.join("|")})`, "gi")
-const TECH_SET_LOWER = new Set(TECH_KEYWORDS.map((k) => k.toLowerCase()))
-
-function highlightTechKeywords(text: string) {
-  if (!text) return text
-  const parts = text.split(TECH_REGEX)
-
-  return parts.map((part, i) => {
-    if (TECH_SET_LOWER.has(part.toLowerCase())) {
-      return (
-        <span key={i} className="swiss-tech-token">
-          {part}
-        </span>
-      )
-    }
-    return part
-  })
-}
-
 function FormattedJd({ text }: { text: string }) {
   const rendered = useMemo(() => {
     const lines = text.split(/\r?\n/)
@@ -85,9 +37,7 @@ function FormattedJd({ text }: { text: string }) {
       }
 
       return (
-        <div key={idx} className="swiss-jd-line">
-          {highlightTechKeywords(line)}
-        </div>
+        <div key={idx} className="swiss-jd-line">{line}</div>
       )
     })
   }, [text])
@@ -251,9 +201,7 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
                     <span className="row-code highlight-code">01.2</span>
                     <span className="row-title highlight-title">对标与切入点 [核心]</span>
                   </div>
-                  <div className="row-body benchmark-content">
-                    {highlightTechKeywords(reason.modular.benchmark)}
-                  </div>
+                  <div className="row-body benchmark-content">{reason.modular.benchmark}</div>
                 </div>
 
                 {/* 03 企业背景 */}
