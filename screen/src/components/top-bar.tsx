@@ -106,38 +106,36 @@ function TopBar({
           </div>
         </div>
 
-        {/* 圈岗与过滤检索 */}
-        <div className="topbar-tool-group">
-          <button
-            type="button"
-            className={`swiss-tool-btn ${onlyStar ? "is-active" : ""}`}
-            onClick={onToggleOnlyStar}
-            title="仅看圈岗岗位"
-          >
-            <span>{onlyStar ? "★" : "☆"} 圈岗</span>
-            <span className="tool-count">[{starCount}]</span>
-          </button>
+        <button
+          type="button"
+          className={`swiss-tool-btn topbar-star ${onlyStar ? "is-active" : ""}`}
+          onClick={onToggleOnlyStar}
+          title="仅看圈岗岗位"
+        >
+          <span>{onlyStar ? "★" : "☆"} 圈岗</span>
+          <span className="tool-count">[{starCount}]</span>
+        </button>
 
-          <div className="swiss-search-wrap">
-            <span className="search-prefix">//</span>
-            <input
-              type="text"
-              className="swiss-search-input"
-              value={query}
-              onChange={(e) => onQueryChange(e.target.value)}
-              placeholder="FILTER // 检索岗位/公司/停因..."
-            />
-            {query ? (
-              <button
-                type="button"
-                className="swiss-clear-btn"
-                onClick={() => onQueryChange("")}
-              >
-                [X]
-              </button>
-            ) : null}
-          </div>
+        <div className="swiss-search-wrap">
+          <span className="search-prefix">//</span>
+          <input
+            type="text"
+            className="swiss-search-input"
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            placeholder="FILTER // 检索岗位/公司/停因..."
+          />
+          {query ? (
+            <button
+              type="button"
+              className="swiss-clear-btn"
+              onClick={() => onQueryChange("")}
+            >
+              [X]
+            </button>
+          ) : null}
         </div>
+        <div className="topbar-line-break" aria-hidden="true" />
       </div>
 
       {/* 二级切片细分条 */}
