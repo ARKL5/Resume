@@ -3,11 +3,40 @@
 from __future__ import annotations
 
 import json
+import random
 import time
 import urllib.error
 import urllib.request
 
 from boss_screen.config import Settings, fill
+
+AI_ATTEMPTS = 4
+AI_BACKOFF_SECONDS = 0.8
+AI_MAX_BACKOFF_SECONDS = 8.0
+AI_MAX_COOLDOWN_SECONDS = 20.0
+# 上游过载类状态码：换个时机再来可能成功，不算确定性失败。
+RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
+class AiError(RuntimeError):
+    """AI 调用失败。retryable 为真表示重试或稍后再试可能成功。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        status: int | None = None,
+        cooldown: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.status = status
+        self.cooldown = cooldown
+
+
+def is_retryable(exc: BaseException) -> bool:
+    return isinstance(exc, AiError) and exc.retryable
 
 
 def parse_title_action(raw: str | None) -> tuple[str | None, str]:
@@ -53,8 +82,8 @@ def complete(settings: Settings, content: str) -> str:
         },
         method="POST",
     )
-    last_error: Exception | None = None
-    for attempt in range(1, 4):
+    last_error: AiError | None = None
+    for attempt in range(1, AI_ATTEMPTS + 1):
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
                 raw = response.read().decode("utf-8")
@@ -62,19 +91,42 @@ def complete(settings: Settings, content: str) -> str:
             return obj["choices"][0]["message"]["content"]
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:500]
-            message = f"AI请求失败，状态码: {exc.code}, 详情: {detail}"
-            if exc.code in (429, 500, 502, 503, 504) and attempt < 3:
-                time.sleep(0.8 * attempt)
-                last_error = RuntimeError(message)
-                continue
-            raise RuntimeError(message) from exc
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, IndexError) as exc:
-            last_error = exc
-            if attempt < 3:
-                time.sleep(0.8 * attempt)
-                continue
-            raise RuntimeError(str(exc)) from exc
-    raise RuntimeError(str(last_error or "AI请求失败"))
+            cooldown = _cooldown_seconds(detail) if exc.code == 429 else None
+            last_error = AiError(
+                f"AI请求失败，状态码: {exc.code}, 详情: {detail}",
+                retryable=exc.code in RETRYABLE_STATUS,
+                status=exc.code,
+                cooldown=cooldown,
+            )
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            last_error = AiError(f"AI请求失败，网络或超时: {exc}", retryable=True)
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+            last_error = AiError(f"AI回复不符合契约: {exc!r}", retryable=True)
+        if not last_error.retryable or attempt == AI_ATTEMPTS:
+            raise last_error
+        time.sleep(_backoff(attempt, last_error.cooldown))
+    raise last_error if last_error is not None else AiError("AI请求失败")
+
+
+def _cooldown_seconds(detail: str) -> float | None:
+    """网关给出的冷却秒数（重置时间），有就照着退避，别用固定退避硬撞。"""
+    try:
+        payload = json.loads(detail)
+    except (ValueError, TypeError):
+        return None
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(error, dict):
+        return None
+    raw = error.get("reset_seconds")
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw >= 0:
+        return float(raw)
+    return None
+
+
+def _backoff(attempt: int, cooldown: float | None) -> float:
+    if cooldown is not None:
+        return min(cooldown + 0.5, AI_MAX_COOLDOWN_SECONDS) + random.uniform(0, 0.3)
+    return min(AI_BACKOFF_SECONDS * (2 ** (attempt - 1)), AI_MAX_BACKOFF_SECONDS) + random.uniform(0, 0.3)
 
 
 def title_prompt(settings: Settings, keyword: str, company: str, job: str, tags: str) -> str:

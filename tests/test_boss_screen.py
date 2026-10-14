@@ -564,38 +564,6 @@ def test_stream_list_emits_keyword_summary_log(caplog: pytest.LogCaptureFixture)
     assert any("【AI Agent】汇总：卡片 2（终局跳过 1）| 规则淘汰 1" in rec.message for rec in caplog.records)
 
 
-def test_consecutive_title_ai_failures_stop_the_session():
-    session: Any = Session.__new__(Session)
-    session.ai_fail_streak = 0
-    session.detail_attempts = 0
-    rules = {
-        "black_jobs": [],
-        "black_companies": [],
-        "black_recruiters": [],
-        "company_tokens": [],
-        "job_tokens": [],
-    }
-    session.settings = type("Settings", (), {"detail_limit": -1, "rule_kwargs": lambda _self: rules})()
-    session.stop = threading.Event()
-    session.store = type("Store", (), {"get": lambda _self, _id: None, "upsert": lambda _self, row: row})()
-    session._ai_lock = threading.Lock()
-    session.end_reason = ""
-    session._halt = lambda _reason: session.stop.is_set()
-    session._title_ai = lambda _kw, cards: [(None, "AI请求失败") for _ in cards]
-    session._click_details = lambda *_args, **_kwargs: None
-
-    cards = [
-        Card(encrypt_id="c1", job="开发1", company="甲", area="杭州"),
-        Card(encrypt_id="c2", job="开发2", company="乙", area="杭州"),
-        Card(encrypt_id="c3", job="开发3", company="丙", area="杭州"),
-        Card(encrypt_id="c4", job="开发4", company="丁", area="杭州"),
-    ]
-    pool: Any = _ImmediatePool()
-    session._process_batch("AI Agent", cards, 0, pool, [])
-    assert session.ai_fail_streak == 3
-    assert session.stop.is_set()
-
-
 def test_watch_log_returns_on_alert_completion_and_stall(tmp_path: Path):
     log_file = tmp_path / "screen.log"
     log_file.write_text(

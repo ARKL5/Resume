@@ -8,10 +8,18 @@ import signal
 import threading
 import time
 import urllib.parse
+from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 
-from boss_screen.ai import complete, jd_prompt, parse_jd, parse_title_action, title_prompt
+from boss_screen.ai import (
+    complete,
+    is_retryable,
+    jd_prompt,
+    parse_jd,
+    parse_title_action,
+    title_prompt,
+)
 from boss_screen.browser import detail_gap_seconds, fresh_page, open_chrome, risk_state
 from boss_screen.cards import Card, overlay, parse_detail
 from boss_screen.config import Settings, load_settings, search_url, setup_logging
@@ -36,7 +44,24 @@ AI_PARALLELISM = 16
 MAX_SCROLL_ROUNDS = 30
 MAX_CONSECUTIVE_SEEN = 25
 MAX_EMPTY_SCROLLS = 4
-MAX_AI_FAIL_STREAK = 3
+# 熔断看滑动窗口而不是连续计数：上游 429/超时这类可重试失败之间夹着成功就不停轮。
+AI_BREAKER_WINDOW = 12
+AI_BREAKER_MIN_SAMPLES = 8
+AI_BREAKER_FAIL_RATIO = 0.75
+# 确定性失败（配置/鉴权类）不会自愈，连续几次就停。
+MAX_DETERMINISTIC_AI_FAILS = 3
+# 暂停期间自己重载目标页制造新的成功响应；风控码与验证页不碰。
+SELF_RECOVERY_INTERVAL_SECONDS = 25.0
+MAX_SELF_RECOVERY_ATTEMPTS = 5
+
+
+def _release_hint(automatic: bool, retryable: bool, recoveries: int) -> str:
+    """暂停日志里的放行说明：自恢复能干的活不该推给值守。"""
+    if automatic:
+        return "验证后自动确认业务"
+    if retryable and recoveries < MAX_SELF_RECOVERY_ATTEMPTS:
+        return f"先自行重载恢复（已试 {recoveries}/{MAX_SELF_RECOVERY_ATTEMPTS}），也可发 SIGUSR1 明确继续"
+    return "处理后发送 SIGUSR1 明确继续"
 
 
 @dataclass
@@ -120,7 +145,7 @@ def main() -> int:
 
 class Session:
     detail_attempts: int = 0
-    ai_fail_streak: int = 0
+    ai_deterministic_fails: int = 0
     details_since_last_break: int = 0
 
     def __init__(
@@ -142,7 +167,8 @@ class Session:
         self.pending_cards: dict[str, Card] = {}
         self.attempted_details: set[str] = set()
         self.detail_attempts = 0
-        self.ai_fail_streak = 0
+        self.ai_deterministic_fails = 0
+        self.ai_outcomes: deque[bool] = deque(maxlen=AI_BREAKER_WINDOW)
         self.details_since_last_break = 0
 
     def _attempted(self) -> set[str]:
@@ -343,7 +369,6 @@ class Session:
                 return consecutive_seen
             if self._halt("标题筛选完成后检查"):
                 return consecutive_seen
-            self._record_ai(action is not None)
             remaining = self._remaining_clicks()
             stage, clean_reason, should_click = title_disposition(
                 action, reason, classify_city(card.area), remaining
@@ -378,9 +403,13 @@ class Session:
             try:
                 raw = complete(self.settings, prompt)
             except Exception as exc:
+                self._record_ai(False, retryable=is_retryable(exc))
                 log.warning("标题AI失败 | %s | %s | %s", card.company, card.job, exc)
                 return None, str(exc)
-            return parse_title_action(raw)
+            action, reason = parse_title_action(raw)
+            # 回复看不懂是可重试的噪声，不该按确定性失败熔断。
+            self._record_ai(action is not None, retryable=True)
+            return action, reason
 
         return _parallel("标题AI", cards, one, self.stop, lambda: self._sleep(0.05))
 
@@ -436,7 +465,7 @@ class Session:
                     self._sleep(0.2)
                 if body is None and not self.stop.is_set():
                     stats.detail_fail += 1
-                    self.facts.fail("目标岗位详情未返回，暂停整轮", "detail")
+                    self.facts.fail("目标岗位详情未返回，暂停整轮", "detail", retryable=True)
                     if self._halt("等待岗位详情超时"):
                         break
                     body = body_cache.get(card.encrypt_id)
@@ -529,31 +558,51 @@ class Session:
             "financing": parsed.get("financing") or card.financing,
         }
 
-    def _record_ai(self, success: bool) -> None:
+    def _record_ai(self, success: bool, *, retryable: bool = False) -> None:
+        """每个 AI 尝试记一次账。可重试失败只进滑动窗口，确定性失败连续计数即熔断。"""
         with self._ai_lock:
-            self.ai_fail_streak = 0 if success else self.ai_fail_streak + 1
-            if self.ai_fail_streak >= MAX_AI_FAIL_STREAK and not self.stop.is_set():
+            self.ai_outcomes.append(success)
+            if success or retryable:
+                self.ai_deterministic_fails = 0
+            else:
+                self.ai_deterministic_fails += 1
+            reason = self._ai_breaker_reason()
+            if reason and not self.stop.is_set():
                 self.end_reason = "熔断"
-                log.error("AI 连续失败 %s 次，停止本轮筛选", self.ai_fail_streak)
+                log.error("AI %s，停止本轮筛选", reason)
                 self.stop.set()
+
+    def _ai_breaker_reason(self) -> str:
+        if self.ai_deterministic_fails >= MAX_DETERMINISTIC_AI_FAILS:
+            return f"连续 {self.ai_deterministic_fails} 次确定性失败（配置或鉴权类，重试不会自愈）"
+        window = list(self.ai_outcomes)
+        if len(window) < AI_BREAKER_MIN_SAMPLES:
+            return ""
+        failed = window.count(False)
+        if failed / len(window) >= AI_BREAKER_FAIL_RATIO:
+            return (
+                f"最近 {len(window)} 次调用失败 {failed} 次"
+                f"（达到 {AI_BREAKER_FAIL_RATIO:.0%}，疑上游不可用）"
+            )
+        return ""
 
     def _submit_jd(self, pool: ThreadPoolExecutor, keyword: str, job: dict) -> Future:
         def work() -> str:
             if self.stop.is_set():
                 return "ai_jd_pending"
             try:
-                outcome = self._screen_job(keyword, job)
+                return self._screen_job(keyword, job)
             except Exception:
+                # AI 失败已在 _screen_job 里记账；到这里是筛选自身的意外错误。
                 self._record_ai(False)
                 raise
-            self._record_ai(outcome != "ai_jd_pending")
-            return outcome
         return pool.submit(work)
 
     def _screen_job(self, keyword: str, job: dict) -> str:
         try:
             raw = complete(self.settings, jd_prompt(self.settings, keyword, job))
         except Exception as exc:
+            self._record_ai(False, retryable=is_retryable(exc))
             log.warning("JD AI失败 | %s | %s | %s", job.get("company"), job.get("job"), exc)
             self.store.upsert(
                 {
@@ -566,6 +615,7 @@ class Session:
             return "ai_jd_pending"
         keep, reason = parse_jd(raw)
         if keep is None:
+            self._record_ai(False, retryable=True)
             self.store.upsert(
                 {
                     **job,
@@ -575,6 +625,7 @@ class Session:
                 }
             )
             return "ai_jd_pending"
+        self._record_ai(True)
         stage = "ai_keep" if keep else "ai_jd_drop"
         clean_reason = reason.strip() or "无理由"
         log.info("%s | %s | %s | %s", stage, job.get("company"), job.get("job"), clean_reason)
@@ -606,7 +657,7 @@ class Session:
         try:
             raw = self.page.evaluate(_HARVEST_JS)
         except Exception:
-            self.facts.fail("列表 DOM 读取失败")
+            self.facts.fail("列表 DOM 读取失败", retryable=True)
             raw = []
         if isinstance(raw, list):
             for item in raw:
@@ -675,10 +726,10 @@ class Session:
             if self.stop.is_set():
                 return
             if self.facts.list_serial == 0:
-                self.facts.fail("目标列表未返回成功响应")
+                self.facts.fail("目标列表未返回成功响应", retryable=True)
             self._halt("进入列表")
         except Exception:
-            self.facts.fail("列表导航或页面读取失败")
+            self.facts.fail("列表导航或页面读取失败", retryable=True)
             self._halt("进入列表失败")
 
     def _goto(self, url: str) -> None:
@@ -724,8 +775,11 @@ class Session:
         serial = fault.serial if fault else self.facts.serial
         automatic = bool(state is True or (fault and fault.verification))
         kind = fault.kind if fault else ("detail" if self.target_detail else "list")
+        retryable = bool(fault and fault.retryable)
         allowed = automatic
         last_report = 0.0
+        recoveries = 0
+        last_recovery = time.monotonic()
         try:
             while not self.stop.is_set():
                 current = self.facts.fault
@@ -733,6 +787,7 @@ class Session:
                     serial = current.serial
                     automatic = current.verification or risk_state(self.page) is True
                     kind = current.kind
+                    retryable = current.retryable
                     allowed = automatic
                     self.resume.clear()
                     last_report = 0
@@ -744,15 +799,31 @@ class Session:
                     if kind == "detail" and self.target_detail
                     else self.facts.list_serial > serial
                 )
-                if allowed and fresh and risk_state(self.page) is False and _landed(self.page, self.target_url):
-                    self.facts.fault = None
-                    log.info("目标业务已恢复，继续")
-                    return False
+                if fresh and risk_state(self.page) is False and _landed(self.page, self.target_url):
+                    if allowed:
+                        self.facts.fault = None
+                        log.info("目标业务已恢复，继续")
+                        return False
+                    if recoveries and retryable:
+                        # 一次性接口/读取故障：自己重载拿回成功响应就算恢复，不占人工。
+                        self.facts.fault = None
+                        log.info("暂停自恢复成功，继续")
+                        return False
+                if (
+                    not automatic
+                    and retryable
+                    and recoveries < MAX_SELF_RECOVERY_ATTEMPTS
+                    and time.monotonic() - last_recovery >= SELF_RECOVERY_INTERVAL_SECONDS
+                ):
+                    recoveries += 1
+                    last_recovery = time.monotonic()
+                    self._self_recover(kind, recoveries)
                 if time.monotonic() - last_report >= 60 or last_report == 0:
                     log.warning(
-                        "暂停等人：%s；%s；需在原浏览器恢复目标业务",
+                        "暂停等人：%s%s；%s；需在原浏览器恢复目标业务",
                         current.reason if current else reason,
-                        "验证后自动确认业务" if automatic else "处理后发送 SIGUSR1 明确继续",
+                        f"（{current.hint}）" if current and current.hint else "",
+                        _release_hint(automatic, retryable, recoveries),
                     )
                     last_report = time.monotonic()
                 try:
@@ -763,6 +834,17 @@ class Session:
             return True
         finally:
             self._pausing = False
+
+    def _self_recover(self, kind: str, attempt: int) -> None:
+        """暂停期间自己重载目标页，制造一次新的成功响应；风控码与验证页到不了这里。"""
+        log.info("暂停自恢复 %s/%s：重新加载目标页", attempt, MAX_SELF_RECOVERY_ATTEMPTS)
+        if kind == "detail":
+            # 详情响应不会因为重载列表而重来，恢复判据交回列表序号。
+            self.target_detail = ""
+        try:
+            self._goto(self.target_url)
+        except Exception as exc:
+            log.warning("暂停自恢复导航失败：%s", exc)
 
     def _gap(self) -> None:
         base = self.settings.keyword_gap
@@ -781,7 +863,7 @@ class Session:
             try:
                 self.page.wait_for_timeout(min(left, 0.25) * 1000)
             except Exception:
-                self.facts.fail("等待期间页面读取失败")
+                self.facts.fail("等待期间页面读取失败", retryable=True)
         return True
 
 

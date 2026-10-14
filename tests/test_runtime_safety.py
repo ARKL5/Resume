@@ -1,17 +1,34 @@
 import io
 import json
+import logging
 import threading
+import urllib.error
 from concurrent.futures import ThreadPoolExecutor
+from email.message import Message
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from boss_screen import ai as ai_mod
+from boss_screen import run as run_mod
 from boss_screen import watch as watch_mod
+from boss_screen.ai import AiError, complete
 from boss_screen.browser import open_chrome, risk_state
 from boss_screen.cards import Card, ingest_job_list, parse_detail
-from boss_screen.page_facts import PageFacts
-from boss_screen.run import KeywordStats, Session, _landed
+from boss_screen.page_facts import (
+    REQUEST_FAILURE_STREAK,
+    ApiError,
+    PageFacts,
+    business_data,
+)
+from boss_screen.run import (
+    AI_BREAKER_MIN_SAMPLES,
+    MAX_DETERMINISTIC_AI_FAILS,
+    KeywordStats,
+    Session,
+    _landed,
+)
 from boss_screen.store import JobStore
 from boss_screen.watch import _last_run, watch_log
 
@@ -119,13 +136,33 @@ def test_response_from_previous_keyword_is_ignored():
     assert not facts.cards
 
 
-def test_network_failure_pauses_current_generation_only():
+def test_single_request_failure_is_noise_until_requests_keep_failing():
     facts = PageFacts(Page())
     request = SimpleNamespace(url=DETAIL)
     facts.on_request(request)
     facts.on_failed(request)
+    assert facts.fault is None
+
+    for _ in range(REQUEST_FAILURE_STREAK - 1):
+        request = SimpleNamespace(url=DETAIL)
+        facts.on_request(request)
+        facts.on_failed(request)
     assert facts.fault is not None
     assert facts.fault.kind == "detail"
+    assert facts.fault.retryable is True
+
+
+def test_successful_response_resets_the_request_failure_streak():
+    facts = PageFacts(Page())
+    for _ in range(REQUEST_FAILURE_STREAK - 1):
+        request = SimpleNamespace(url=LIST)
+        facts.on_request(request)
+        facts.on_failed(request)
+    respond(facts, listing())
+    request = SimpleNamespace(url=LIST)
+    facts.on_request(request)
+    facts.on_failed(request)
+    assert facts.fault is None
 
 
 def test_dom_before_api_is_processed_only_with_full_list_facts(session):
@@ -236,6 +273,104 @@ def test_unknown_fault_needs_explicit_resume_even_after_success(session):
     assert session.facts.fault is None
 
 
+def test_retryable_fault_self_recovers_without_waiting_for_a_human(session, monkeypatch, caplog):
+    session.facts.fail("岗位接口网络请求失败", "list", retryable=True)
+    monkeypatch.setattr(run_mod, "SELF_RECOVERY_INTERVAL_SECONDS", 0.0)
+    reloads = []
+
+    def goto(url):
+        reloads.append(url)
+        respond(session.facts, listing())
+
+    monkeypatch.setattr(session, "_goto", goto)
+    with caplog.at_level(logging.INFO, logger="boss_screen"):
+        assert session._halt("异常") is False
+    assert reloads == [URL]
+    assert session.facts.fault is None
+    assert any("暂停自恢复成功，继续" in record.message for record in caplog.records)
+
+
+def test_self_recovery_stops_after_the_attempt_budget(session, monkeypatch):
+    session.facts.fail("岗位接口网络请求失败", "list", retryable=True)
+    monkeypatch.setattr(run_mod, "SELF_RECOVERY_INTERVAL_SECONDS", 0.0)
+    reloads = []
+    monkeypatch.setattr(session, "_goto", lambda url: reloads.append(url))
+    ticks = []
+
+    def tick():
+        ticks.append(1)
+        if len(ticks) == 8:
+            session.resume.set()
+            respond(session.facts, listing())
+
+    session.page.tick = tick
+    assert session._halt("异常") is False
+    assert len(reloads) == run_mod.MAX_SELF_RECOVERY_ATTEMPTS
+
+
+def test_verification_fault_never_self_reloads(session, monkeypatch):
+    monkeypatch.setattr(run_mod, "SELF_RECOVERY_INTERVAL_SECONDS", 0.0)
+    reloads = []
+    monkeypatch.setattr(session, "_goto", lambda url: reloads.append(url))
+    respond(session.facts, json.dumps({"code": 31, "message": "请完成验证", "zpData": {}}))
+    ticks = []
+
+    def tick():
+        ticks.append(1)
+        if len(ticks) == 1:
+            session.resume.set()
+            respond(session.facts, listing())
+
+    session.page.tick = tick
+    assert session._halt("异常") is False
+    assert reloads == []
+
+
+def test_ip_risk_code_pauses_with_the_server_message_and_no_reload(session, monkeypatch, caplog):
+    monkeypatch.setattr(run_mod, "SELF_RECOVERY_INTERVAL_SECONDS", 0.0)
+    reloads = []
+    monkeypatch.setattr(session, "_goto", lambda url: reloads.append(url))
+    respond(session.facts, json.dumps({"code": 35, "message": "您的IP地址存在异常行为.", "zpData": {}}))
+    fault = session.facts.fault
+    assert fault is not None
+    assert fault.verification is False
+    assert fault.retryable is False
+    ticks = []
+
+    def tick():
+        ticks.append(1)
+        if len(ticks) == 1:
+            session.resume.set()
+            respond(session.facts, listing())
+
+    session.page.tick = tick
+    with caplog.at_level(logging.WARNING, logger="boss_screen"):
+        assert session._halt("异常") is False
+    assert reloads == []
+    assert any(
+        "您的IP地址存在异常行为." in record.message and "出口 IP" in record.message
+        for record in caplog.records
+    )
+
+
+def test_title_ai_trips_the_circuit_on_deterministic_failures(session, monkeypatch):
+    monkeypatch.setattr(run_mod, "title_prompt", lambda *_a, **_k: "提示词")
+    monkeypatch.setattr(run_mod, "complete", _ai_deterministic_boom)
+    cards = [Card(encrypt_id=f"c{i}", job="开发", company="甲") for i in range(MAX_DETERMINISTIC_AI_FAILS)]
+    session._title_ai("Agent", cards)
+    assert session.stop.is_set()
+    assert session.end_reason == "熔断"
+
+
+def test_unparsable_title_reply_is_retryable_and_does_not_trip(session, monkeypatch):
+    monkeypatch.setattr(run_mod, "title_prompt", lambda *_a, **_k: "提示词")
+    monkeypatch.setattr(run_mod, "complete", lambda *_a, **_k: "这不是 JSON")
+    cards = [Card(encrypt_id="c1", job="开发", company="甲")]
+    assert session._title_ai("Agent", cards) == [(None, "这不是 JSON")]
+    assert not session.stop.is_set()
+    assert session.ai_deterministic_fails == 0
+
+
 def test_verification_disappearing_without_business_does_not_resume(session):
     session.page.url = "https://www.zhipin.com/web/user/safe/verify-slider"
     ticks = []
@@ -288,21 +423,121 @@ def test_landing_on_old_keyword_does_not_count_as_target():
     assert _landed(page, URL)
 
 
-def test_jd_failures_trip_circuit_while_browsing_and_in_pending_retry(session):
-    session._screen_job = lambda _kw, _job: "ai_jd_pending"
+def _ai_deterministic_boom(*_args, **_kwargs):
+    raise AiError("AI请求失败，状态码: 401, 详情: 未授权", retryable=False, status=401)
+
+
+def test_deterministic_jd_failures_trip_the_circuit_while_browsing(session, monkeypatch):
+    monkeypatch.setattr(run_mod, "jd_prompt", lambda *_a, **_k: "提示词")
+    monkeypatch.setattr(run_mod, "complete", _ai_deterministic_boom)
     with ThreadPoolExecutor(1) as pool:
-        for _ in range(3):
-            session._submit_jd(pool, "Agent", {}).result()
+        for _ in range(MAX_DETERMINISTIC_AI_FAILS):
+            session._submit_jd(pool, "Agent", {"encryptId": "one", "company": "甲", "job": "开发"}).result()
     assert session.stop.is_set()
     assert session.end_reason == "熔断"
 
 
-def test_pending_jd_retry_uses_same_circuit(session):
+def test_pending_jd_retry_uses_the_same_circuit(session, monkeypatch):
+    monkeypatch.setattr(run_mod, "jd_prompt", lambda *_a, **_k: "提示词")
+    monkeypatch.setattr(run_mod, "complete", _ai_deterministic_boom)
     session.store.pending_jd_rows = lambda: [{"keyword": "Agent"}] * 5
-    session._screen_job = lambda _kw, _job: "ai_jd_pending"
     session._retry_pending_jds()
     assert session.stop.is_set()
-    assert session.ai_fail_streak == 3
+    assert session.ai_deterministic_fails >= MAX_DETERMINISTIC_AI_FAILS
+
+
+def test_deterministic_ai_failures_trip_at_once_but_retryable_ones_do_not(session):
+    for _ in range(MAX_DETERMINISTIC_AI_FAILS - 1):
+        session._record_ai(False)
+    assert not session.stop.is_set()
+    session._record_ai(False)
+    assert session.stop.is_set()
+    assert session.end_reason == "熔断"
+
+
+def test_retryable_ai_failures_spread_across_successes_do_not_trip(session):
+    for _ in range(20):
+        session._record_ai(False, retryable=True)
+        session._record_ai(True)
+    assert not session.stop.is_set()
+
+
+def test_sustained_retryable_ai_failures_still_trip_the_window(session):
+    for _ in range(AI_BREAKER_MIN_SAMPLES - 1):
+        session._record_ai(False, retryable=True)
+    assert not session.stop.is_set()
+    session._record_ai(False, retryable=True)
+    assert session.stop.is_set()
+    assert session.end_reason == "熔断"
+
+
+@pytest.mark.parametrize("code,verification", [(31, True), (35, False), (36, True), (37, True)])
+def test_risk_codes_carry_the_server_message_and_a_hint(code, verification):
+    body = json.dumps({"code": code, "message": "您的IP地址存在异常行为.", "zpData": {}})
+    with pytest.raises(ApiError) as caught:
+        business_data(body)
+    assert str(caught.value) == f"岗位接口业务码 {code}（您的IP地址存在异常行为.）"
+    assert caught.value.hint
+    assert caught.value.verification is verification
+    assert caught.value.retryable is False
+
+
+def test_business_code_without_message_and_http_5xx_classification():
+    with pytest.raises(ApiError) as caught:
+        business_data('{"code":37,"zpData":{}}')
+    assert str(caught.value) == "岗位接口业务码 37"
+    assert "环境" in caught.value.hint
+    with pytest.raises(ApiError) as overloaded:
+        business_data("<html>502</html>", 502)
+    assert overloaded.value.retryable is True
+
+
+def test_429_reply_waits_the_gateway_cooldown_then_retries(monkeypatch):
+    calls = []
+    slept: list[float] = []
+    reply = json.dumps({"choices": [{"message": {"content": '{"action": "drop", "reason": "不匹配"}'}}]}).encode()
+
+    class Ok:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return reply
+
+    def urlopen(_request, timeout=0):
+        calls.append(timeout)
+        if len(calls) == 1:
+            detail = json.dumps({"error": {"reset_seconds": 4}}).encode()
+            raise urllib.error.HTTPError("http://ai", 429, "too many requests", Message(), io.BytesIO(detail))
+        return Ok()
+
+    monkeypatch.setattr(ai_mod.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(ai_mod.time, "sleep", slept.append)
+    settings: Any = SimpleNamespace(ai_base="http://127.0.0.1:8317/v1", ai_model="m", ai_key="k")
+    assert "drop" in complete(settings, "提示词")
+    assert len(slept) == 1
+    assert 4.0 <= slept[0] <= ai_mod.AI_MAX_COOLDOWN_SECONDS
+
+
+def test_http_4xx_client_error_is_not_retried(monkeypatch):
+    calls = []
+
+    def urlopen(_request, timeout=0):
+        calls.append(timeout)
+        detail = json.dumps({"error": {"message": "bad key"}}).encode()
+        raise urllib.error.HTTPError("http://ai", 401, "unauthorized", Message(), io.BytesIO(detail))
+
+    monkeypatch.setattr(ai_mod.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(ai_mod.time, "sleep", lambda _s: pytest.fail("401 不该重试"))
+    settings: Any = SimpleNamespace(ai_base="http://127.0.0.1:8317/v1", ai_model="m", ai_key="k")
+    with pytest.raises(AiError) as caught:
+        complete(settings, "提示词")
+    assert caught.value.retryable is False
+    assert caught.value.status == 401
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize("text,code", [
