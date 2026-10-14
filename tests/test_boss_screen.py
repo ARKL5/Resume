@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 from boss_screen.ai import parse_jd, parse_title_action
-from boss_screen.browser import detail_gap_seconds, halt_if_risk, proxy_args
+from boss_screen.browser import detail_gap_seconds, proxy_args
 from boss_screen.cards import Card, ingest_job_list, overlay, parse_detail
 from boss_screen.config import load_settings, search_url, setup_logging
 from boss_screen.proc_lock import acquire, release, running_pid, take_lock
@@ -308,6 +308,7 @@ def test_revisit_skips_all_terminal_stages_and_advances_queued_jobs():
 def test_list_json_and_detail_fields():
     body = json.dumps(
         {
+            "code": 0,
             "zpData": {
                 "jobList": [
                     {
@@ -353,6 +354,7 @@ def test_list_json_and_detail_fields():
     detail = parse_detail(
         json.dumps(
             {
+                "code": 0,
                 "zpData": {
                     "jobInfo": {
                         "jobName": "Agent 开发",
@@ -444,27 +446,6 @@ def test_take_lock_refuses_when_held(tmp_path: Path):
     assert running_pid(lock_file) is None
 
 
-def test_url_read_failure_does_not_count_as_verification_gone():
-    page = _UrlPage(
-        [
-            "https://www.zhipin.com/web/user/safe/verify-slider",
-            RuntimeError("closed"),
-            "https://www.zhipin.com/web/geek/job",
-        ]
-    )
-    stop = threading.Event()
-    assert halt_if_risk(page, stop, False, "筛选", poll_seconds=0) is False
-    assert page.urls == []
-    assert not stop.is_set()
-
-
-def test_url_read_failure_stops_when_on_risk_is_stop():
-    page = _UrlPage([RuntimeError("closed")])
-    stop = threading.Event()
-    assert halt_if_risk(page, stop, True, "筛选", poll_seconds=0) is True
-    assert stop.is_set()
-
-
 def test_setup_logging_writes_to_file(tmp_path: Path):
     target = tmp_path / "custom.log"
     setup_logging(target)
@@ -498,84 +479,16 @@ def test_load_settings_log_file_options(tmp_path: Path):
     assert s2.log_file is None
 
 
-def test_detail_attempts_only_increment_after_click():
-    session: Any = Session.__new__(Session)
-    session.detail_attempts = 0
-    session.settings = type("Settings", (), {"detail_limit": 1})()
-    session.stop = threading.Event()
-    session.page = _DetailPage()
-    session._halt = lambda _reason: False
-    session._card_locator = lambda _encrypt_id: _DetailTarget()
-    click_count = 0
-
-    def click(_target):
-        nonlocal click_count
-        click_count += 1
-
-    session._human_click = click
-    session._job_from_detail = lambda _card, _body: None
-    session._pause_between_jobs = lambda: None
-
-    pool: Any = _ImmediatePool()
-    session._click_details("AI Agent", [Card(encrypt_id="one", job="开发", company="甲")], pool, [])
-
-    assert session.detail_attempts == 1
-    assert click_count == 1
-
-
-def test_missing_detail_card_does_not_consume_detail_limit():
-    session: Any = Session.__new__(Session)
-    session.detail_attempts = 0
-    session.settings = type("Settings", (), {"detail_limit": 1})()
-    session.stop = threading.Event()
-    session.page = _DetailPage()
-    session._halt = lambda _reason: False
-    targets = iter([None, _DetailTarget()])
-    session._card_locator = lambda _encrypt_id: next(targets)
-    session._human_click = lambda _target: None
-    session._job_from_detail = lambda _card, _body: None
-    session._pause_between_jobs = lambda: None
-
-    pool: Any = _ImmediatePool()
-    cards = [Card(encrypt_id="one", job="开发", company="甲"), Card(encrypt_id="two", job="开发", company="乙")]
-    session._click_details("AI Agent", cards, pool, [])
-
-    assert session.detail_attempts == 1
-
-
-def test_detail_timeout_does_not_retry_the_same_click():
-    session: Any = Session.__new__(Session)
-    session.detail_attempts = 0
-    session.settings = type("Settings", (), {"detail_limit": 1})()
-    session.stop = threading.Event()
-    session.page = _TimeoutDetailPage()
-    session._halt = lambda _reason: False
-    session._card_locator = lambda _encrypt_id: _DetailTarget()
-    click_count = 0
-
-    def click(_target):
-        nonlocal click_count
-        click_count += 1
-
-    session._human_click = click
-    session._job_from_detail = lambda _card, _body: None
-    session._pause_between_jobs = lambda: None
-
-    pool: Any = _ImmediatePool()
-    session._click_details("AI Agent", [Card(encrypt_id="one", job="开发", company="甲")], pool, [])
-
-    assert session.detail_attempts == 1
-    assert click_count == 1
-
 def test_detail_response_is_stored_before_stop_signal():
     session: Any = Session.__new__(Session)
     session.detail_attempts = 0
     session.settings = type("Settings", (), {"detail_limit": 1, "black_recruiters": []})()
     session.stop = threading.Event()
-    session.page = _DetailPage()
     session._halt = lambda _reason: False
     session._card_locator = lambda _encrypt_id: _DetailTarget()
-    session._human_click = lambda _target: None
+    session.facts = type("Facts", (), {"details": {"one": "{}"}})()
+    session.pending_cards = {}
+    session._human_click = lambda _target: True
     stored: list[dict] = []
     session.store = type("Store", (), {"upsert": lambda _self, row: stored.append(row) or row})()
     session._job_from_detail = lambda card, _body: session.stop.set() or {
@@ -606,55 +519,12 @@ def test_detail_response_is_stored_before_stop_signal():
     ]
 
 
-def test_detail_failures_pause_abort_keyword_on_two_strikes_and_stop_run_on_third():
-    session: Any = Session.__new__(Session)
-    session.detail_attempts = 0
-    session.detail_fail_streak = 0
-    session.keyword_aborted = False
-    session.settings = type("Settings", (), {"detail_limit": -1})()
-    session.stop = threading.Event()
-    session.page = _TimeoutDetailPage()
-    session._halt = lambda _reason: False
-    session._card_locator = lambda _encrypt_id: _DetailTarget()
-    session._human_click = lambda _target: None
-    pauses = 0
-
-    def record_pause():
-        nonlocal pauses
-        pauses += 1
-
-    session._pause_between_jobs = record_pause
-
-    pool: Any = _ImmediatePool()
-    cards = [
-        Card(encrypt_id="one", job="开发1", company="甲"),
-        Card(encrypt_id="two", job="开发2", company="乙"),
-        Card(encrypt_id="three", job="开发3", company="丙"),
-    ]
-    session._click_details("AI Agent", cards, pool, [])
-
-    # 第 1 次失败后执行了停顿；第 2 次失败触发关键词级熔断，第 3 张卡片不再点击
-    assert session.detail_attempts == 2
-    assert pauses == 1
-    assert session.keyword_aborted is True
-    assert not session.stop.is_set()
-
-    # 下一个关键词重置 keyword_aborted，但若刷新页面后首击仍失败（第 3 次连续失败），直接停机保护账号
-    session.keyword_aborted = False
-    session._click_details("大模型", [Card(encrypt_id="four", job="开发4", company="丁")], pool, [])
-    assert session.detail_attempts == 3
-    assert session.stop.is_set()
-
-
 def test_same_run_skips_reclicking_already_attempted_encrypt_id():
     session: Any = Session.__new__(Session)
     session.detail_attempts = 0
-    session.detail_fail_streak = 0
-    session.keyword_aborted = False
     session.attempted_details = {"dup_1"}
     session.settings = type("Settings", (), {"detail_limit": -1})()
     session.stop = threading.Event()
-    session.page = _DetailPage()
     session._halt = lambda _reason: False
     session._card_locator = lambda _encrypt_id: _DetailTarget()
     session._human_click = lambda _target: None
@@ -662,6 +532,8 @@ def test_same_run_skips_reclicking_already_attempted_encrypt_id():
     session._pause_between_jobs = lambda: None
 
     pool: Any = _ImmediatePool()
+    session.facts = type("Facts", (), {"details": {}})()
+    session.pending_cards = {}
     session._click_details("大模型", [Card(encrypt_id="dup_1", job="开发", company="甲")], pool, [])
     assert session.detail_attempts == 0
 
@@ -669,7 +541,6 @@ def test_same_run_skips_reclicking_already_attempted_encrypt_id():
 def test_stream_list_emits_keyword_summary_log(caplog: pytest.LogCaptureFixture):
     session: Any = Session.__new__(Session)
     session.stop = threading.Event()
-    session.keyword_aborted = False
     session._halt = lambda _reason: False
     session._harvest_new = lambda handled: (
         handled.update({"a", "b"}) or [Card(encrypt_id="a", job="开发", company="甲"), Card(encrypt_id="b", job="运营", company="乙")]
@@ -683,7 +554,8 @@ def test_stream_list_emits_keyword_summary_log(caplog: pytest.LogCaptureFixture)
         return consecutive_seen
 
     session._process_batch = fake_process
-    session._footer_visible = lambda: True
+    session.facts = type("Facts", (), {"has_more": False})()
+    session.pending_cards = {}
     session._scroll_step = lambda: True
 
     with caplog.at_level(logging.INFO, logger="boss_screen"):
@@ -706,6 +578,9 @@ def test_consecutive_title_ai_failures_stop_the_session():
     session.settings = type("Settings", (), {"detail_limit": -1, "rule_kwargs": lambda _self: rules})()
     session.stop = threading.Event()
     session.store = type("Store", (), {"get": lambda _self, _id: None, "upsert": lambda _self, row: row})()
+    session._ai_lock = threading.Lock()
+    session.end_reason = ""
+    session._halt = lambda _reason: session.stop.is_set()
     session._title_ai = lambda _kw, cards: [(None, "AI请求失败") for _ in cards]
     session._click_details = lambda *_args, **_kwargs: None
 
@@ -736,14 +611,14 @@ def test_watch_log_returns_on_alert_completion_and_stall(tmp_path: Path):
     log_file2 = tmp_path / "done.log"
     log_file2.write_text(
         "2026-10-14 18:00:00 INFO 【AI Agent】汇总：卡片 5（终局跳过 1）\n"
-        "2026-10-14 18:02:00 INFO 筛选结束\n",
+        "2026-10-14 18:02:00 INFO 筛选结果：完成\n",
         encoding="utf-8",
     )
     out2 = io.StringIO()
     code2 = watch_log(log_file2, lambda: False, offset=0, poll_seconds=0.01, stall_seconds=10, out=out2)
     assert code2 == 0
     assert "【AI Agent】汇总" in out2.getvalue()
-    assert "值守结束：筛选进程已退出" in out2.getvalue()
+    assert "值守结束：完成" in out2.getvalue()
 
     log_file3 = tmp_path / "stall.log"
     log_file3.write_text("", encoding="utf-8")
@@ -762,59 +637,3 @@ class _DetailTarget:
     def click(self):
         return None
 
-
-class _DetailResponse:
-    def text(self):
-        return "{}"
-
-
-class _DetailWait:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args):
-        return False
-
-    @property
-    def value(self):
-        return _DetailResponse()
-
-
-class _DetailPage:
-    def expect_response(self, _predicate, timeout: int):
-        assert timeout == 15_000
-        return _DetailWait()
-
-
-class _TimeoutDetailWait:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args):
-        raise TimeoutError("detail response timeout")
-
-
-class _TimeoutDetailPage:
-    def expect_response(self, _predicate, timeout: int):
-        assert timeout == 15_000
-        return _TimeoutDetailWait()
-
-
-class _UrlPage:
-    def __init__(self, urls: list[object]) -> None:
-        self.urls = list(urls)
-
-    @property
-    def url(self):
-        item = self.urls.pop(0)
-        if isinstance(item, BaseException):
-            raise item
-        return item
-
-    def locator(self, _selector: str):
-        return _NoWidgets()
-
-
-class _NoWidgets:
-    def count(self) -> int:
-        return 0

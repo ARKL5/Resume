@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,7 +23,8 @@ def setup_logging(log_file: Path | None) -> None:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     root.handlers.clear()
-    root.addHandler(stream_handler)
+    if not os.environ.get("BOSS_SCREEN_FILE_ONLY"):
+        root.addHandler(stream_handler)
 
     if log_file is not None:
         log_file.parent.mkdir(parents=True, exist_ok=True)

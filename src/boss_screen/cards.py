@@ -55,7 +55,7 @@ def ingest_job_list(body: str) -> list[Card]:
         root = json.loads(body)
     except json.JSONDecodeError:
         return []
-    if not isinstance(root, dict):
+    if not isinstance(root, dict) or root.get("code") != 0:
         return []
     zp = _as_dict(root.get("zpData"))
     listing = zp.get("jobList") or zp.get("list") or root.get("jobList")
@@ -135,7 +135,7 @@ def parse_detail(body: str) -> dict:
         root = json.loads(body)
     except json.JSONDecodeError:
         return {}
-    zp = _as_dict(root.get("zpData")) if isinstance(root, dict) else {}
+    zp = _as_dict(root.get("zpData")) if isinstance(root, dict) and root.get("code") == 0 else {}
     job_info = _as_dict(zp.get("jobInfo"))
     boss = _as_dict(zp.get("bossInfo"))
     brand = _as_dict(zp.get("brandComInfo"))
@@ -150,6 +150,7 @@ def parse_detail(body: str) -> dict:
     scale = _first(_text(brand, "scaleName"), _text(brand, "brandScaleName"), _text(job_info, "scaleName"))
     financing = _first(_text(brand, "stageName"), _text(brand, "brandStageName"), _text(job_info, "stageName"))
     return {
+        "encryptId": _text(job_info, "encryptId"),
         "job": _text(job_info, "jobName"),
         "salary": _text(job_info, "salaryDesc"),
         "area": area,

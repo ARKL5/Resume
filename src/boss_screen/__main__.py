@@ -18,10 +18,10 @@ if __name__ == "__main__":
     if not args:
         from boss_screen.run import main
 
-        main()
-    elif args == ["--watch"]:
+        raise SystemExit(main())
+    elif args in (["--watch"], ["--watch", "--start"]):
         from boss_screen.watch import main as watch_main
 
-        raise SystemExit(watch_main())
+        raise SystemExit(watch_main(start="--start" in args))
     else:
         raise SystemExit("未知参数")

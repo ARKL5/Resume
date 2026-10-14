@@ -6,8 +6,6 @@ import json
 import logging
 import os
 import random
-import threading
-import time
 from pathlib import Path
 
 log = logging.getLogger("boss_screen")
@@ -41,7 +39,6 @@ def open_chrome(user_data: Path):
             "--hide-crash-restore-bubble",
             "--no-first-run",
             "--no-default-browser-check",
-            "--remote-debugging-port=9222",
             *proxy_args(),
         ],
     )
@@ -67,22 +64,6 @@ def detail_gap_seconds(wait_time: int) -> int:
     return random.randint(low, wait_time)
 
 
-def sleep_until(stop: threading.Event, seconds: float) -> bool:
-    """睡够返回 False。中途收到停止返回 True。"""
-    end = time.monotonic() + seconds
-    while not stop.is_set():
-        left = end - time.monotonic()
-        if left <= 0:
-            return False
-        if stop.wait(min(left, 1)):
-            return True
-    return True
-
-
-def needs_human(page) -> bool:
-    return risk_state(page) is True
-
-
 def risk_state(page) -> bool | None:
     """True 是风控页，False 不是，None 是页面读失败。"""
     try:
@@ -96,63 +77,24 @@ def risk_state(page) -> bool | None:
             "/web/passport/zp/verify",
             "/web/passport/zp/security",
             "security-check",
+            "/web/common/403.html",
+            "/web/geek/safe-validate",
+            "/web/geek/user-safe",
         )
     ):
         return True
     if "/web/user/" in url and "login" in url:
         return True
     try:
-        geo = page.locator(".geetest_panel, .geetest_holder, iframe[src*='geetest']")
+        geo = page.locator(
+            ".geetest_panel, .geetest_holder, iframe[src*='geetest'], .boss-login-dialog"
+        )
         for index in range(geo.count()):
-            try:
-                if geo.nth(index).is_visible():
-                    return True
-            except Exception:
-                continue
+            if geo.nth(index).is_visible():
+                return True
     except Exception:
-        pass
+        return None
     return False
-
-
-def halt_if_risk(
-    page,
-    stop: threading.Event,
-    stop_on_risk: bool,
-    reason: str,
-    poll_seconds: float = 5,
-) -> bool:
-    """True 表示这一轮该结束。读不到页面不算验证已消失。"""
-    state = risk_state(page)
-    if state is None:
-        if stop_on_risk:
-            log.warning("读不到页面，停止：%s", reason)
-            stop.set()
-            return True
-        log.warning("读不到页面，暂停等人：%s", reason)
-    elif not state:
-        return False
-    elif stop_on_risk:
-        log.warning("风控，停止：%s", reason)
-        stop.set()
-        return True
-    else:
-        log.warning("风控，暂停等人：%s", reason)
-    polls = 0
-    while not stop.is_set():
-        if sleep_until(stop, poll_seconds):
-            return True
-        polls += 1
-        state = risk_state(page)
-        if state is None:
-            if polls % 12 == 0:
-                log.warning("读不到页面，暂停等人：%s", reason)
-            continue
-        if not state:
-            log.info("验证已消失，继续")
-            return False
-        if polls % 12 == 0:
-            log.warning("风控，暂停等人：%s", reason)
-    return True
 
 
 def _clear_crash_exit(user_data: Path) -> None:
