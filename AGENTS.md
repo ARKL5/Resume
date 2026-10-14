@@ -25,3 +25,5 @@ Boss 岗位流式筛选，外加只读对照页。
 筛选运行时：`uv run --group dev ruff check src tests`，`uv run --group dev pyright`，`uv run --group dev pytest`。
 
 筛选进程从仓库根一直跑到自己结束：`uv run python src/boss_screen/__main__.py`。这不是校验。
+
+筛选进程把 Chrome 开在本机 9222 调试端口；要看现场时用 `agent-browser --cdp 9222 tab list` 挂上去，它与筛选进程并存。
