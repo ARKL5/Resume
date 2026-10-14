@@ -35,6 +35,7 @@ MAX_SCROLL_ROUNDS = 30
 MAX_CONSECUTIVE_SEEN = 25
 MAX_EMPTY_SCROLLS = 4
 MAX_DETAIL_FAIL_STREAK = 2
+MAX_AI_FAIL_STREAK = 3
 
 
 @dataclass
@@ -115,6 +116,7 @@ def main() -> None:
 class Session:
     detail_attempts: int = 0
     detail_fail_streak: int = 0
+    ai_fail_streak: int = 0
     details_since_last_break: int = 0
     keyword_aborted: bool = False
 
@@ -127,6 +129,7 @@ class Session:
         self.attempted_details: set[str] = set()
         self.detail_attempts = 0
         self.detail_fail_streak = 0
+        self.ai_fail_streak = 0
         self.details_since_last_break = 0
         self.keyword_aborted = False
         page.on("response", self._on_response)
@@ -236,13 +239,20 @@ class Session:
                     outcome = future.result()
                     if outcome == "ai_keep":
                         stats.jd_keep += 1
+                        self.ai_fail_streak = 0
                     elif outcome == "ai_jd_drop":
                         stats.jd_drop += 1
+                        self.ai_fail_streak = 0
                     elif outcome == "ai_jd_pending":
                         stats.jd_fail += 1
+                        self.ai_fail_streak += 1
                 except Exception as exc:
                     stats.jd_fail += 1
+                    self.ai_fail_streak += 1
                     log.warning("详情 AI 失败: %s", exc)
+                if self.ai_fail_streak >= MAX_AI_FAIL_STREAK:
+                    log.error("AI 连续失败 %s 次，停止本轮筛选", self.ai_fail_streak)
+                    self.stop.set()
         finally:
             jd_pool.shutdown(wait=True, cancel_futures=True)
 
@@ -318,6 +328,10 @@ class Session:
         for card, (action, reason) in zip(need_title_ai, outcomes, strict=True):
             if self.stop.is_set():
                 return consecutive_seen
+            if action is None:
+                self.ai_fail_streak += 1
+            else:
+                self.ai_fail_streak = 0
             remaining = self._remaining_clicks()
             stage, clean_reason, should_click = title_disposition(
                 action, reason, classify_city(card.area), remaining
@@ -331,6 +345,10 @@ class Session:
                 stats.title_drop += 1
             elif stage == "ai_title_pending":
                 stats.title_fail += 1
+            if self.ai_fail_streak >= MAX_AI_FAIL_STREAK:
+                log.error("AI 连续失败 %s 次，停止本轮筛选：%s", self.ai_fail_streak, clean_reason)
+                self.stop.set()
+                return consecutive_seen
             if should_click and card.encrypt_id not in attempted:
                 to_click.append(card)
 

@@ -14,8 +14,14 @@ def _prepare_path() -> None:
 
 if __name__ == "__main__":
     _prepare_path()
-    if sys.argv[1:]:
-        raise SystemExit("未知参数")
-    from boss_screen.run import main
+    args = sys.argv[1:]
+    if not args:
+        from boss_screen.run import main
 
-    main()
+        main()
+    elif args == ["--watch"]:
+        from boss_screen.watch import main as watch_main
+
+        raise SystemExit(watch_main())
+    else:
+        raise SystemExit("未知参数")

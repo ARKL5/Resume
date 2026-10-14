@@ -137,15 +137,21 @@ def halt_if_risk(
         return True
     else:
         log.warning("风控，暂停等人：%s", reason)
+    polls = 0
     while not stop.is_set():
         if sleep_until(stop, poll_seconds):
             return True
+        polls += 1
         state = risk_state(page)
         if state is None:
+            if polls % 12 == 0:
+                log.warning("读不到页面，暂停等人：%s", reason)
             continue
         if not state:
             log.info("验证已消失，继续")
             return False
+        if polls % 12 == 0:
+            log.warning("风控，暂停等人：%s", reason)
     return True
 
 

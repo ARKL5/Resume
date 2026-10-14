@@ -44,6 +44,28 @@ def take_lock(path: Path | None = None):
     return handle
 
 
+def running_pid(path: Path | None = None) -> int | None:
+    chosen = path or default_lock_path()
+    if not chosen.is_file():
+        return None
+    try:
+        handle = open(chosen, "rb")
+    except OSError:
+        return None
+    try:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            try:
+                return int(chosen.read_text(encoding="ascii").strip())
+            except (OSError, ValueError):
+                return -1
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        return None
+    finally:
+        handle.close()
+
+
 def release(handle) -> None:
     if handle is None:
         return

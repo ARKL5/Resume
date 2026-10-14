@@ -1,3 +1,4 @@
+import io
 import json
 import logging
 import os
@@ -16,7 +17,7 @@ from boss_screen.ai import parse_jd, parse_title_action
 from boss_screen.browser import detail_gap_seconds, halt_if_risk, proxy_args
 from boss_screen.cards import Card, ingest_job_list, overlay, parse_detail
 from boss_screen.config import load_settings, search_url, setup_logging
-from boss_screen.proc_lock import acquire, release, take_lock
+from boss_screen.proc_lock import acquire, release, running_pid, take_lock
 from boss_screen.rules import (
     classify_city,
     contains_job_token,
@@ -28,6 +29,7 @@ from boss_screen.rules import (
 )
 from boss_screen.run import Session
 from boss_screen.store import JobStore
+from boss_screen.watch import watch_log
 
 
 def test_city_page_uses_city_name_only():
@@ -428,15 +430,18 @@ def test_second_process_cannot_take_the_lock(tmp_path: Path):
 
 def test_take_lock_refuses_when_held(tmp_path: Path):
     lock_file = tmp_path / "run.lock"
+    assert running_pid(lock_file) is None
     held = acquire(lock_file)
     try:
         assert lock_file.read_text(encoding="ascii").strip() == str(os.getpid())
+        assert running_pid(lock_file) == os.getpid()
         with pytest.raises(SystemExit) as caught:
             take_lock(lock_file)
         assert caught.value.code == 1
         assert lock_file.read_text(encoding="ascii").strip() == str(os.getpid())
     finally:
         release(held)
+    assert running_pid(lock_file) is None
 
 
 def test_url_read_failure_does_not_count_as_verification_gone():
@@ -685,6 +690,67 @@ def test_stream_list_emits_keyword_summary_log(caplog: pytest.LogCaptureFixture)
         session._stream_list("AI Agent")
 
     assert any("【AI Agent】汇总：卡片 2（终局跳过 1）| 规则淘汰 1" in rec.message for rec in caplog.records)
+
+
+def test_consecutive_title_ai_failures_stop_the_session():
+    session: Any = Session.__new__(Session)
+    session.ai_fail_streak = 0
+    session.detail_attempts = 0
+    rules = {
+        "black_jobs": [],
+        "black_companies": [],
+        "black_recruiters": [],
+        "company_tokens": [],
+        "job_tokens": [],
+    }
+    session.settings = type("Settings", (), {"detail_limit": -1, "rule_kwargs": lambda _self: rules})()
+    session.stop = threading.Event()
+    session.store = type("Store", (), {"get": lambda _self, _id: None, "upsert": lambda _self, row: row})()
+    session._title_ai = lambda _kw, cards: [(None, "AI请求失败") for _ in cards]
+    session._click_details = lambda *_args, **_kwargs: None
+
+    cards = [
+        Card(encrypt_id="c1", job="开发1", company="甲", area="杭州"),
+        Card(encrypt_id="c2", job="开发2", company="乙", area="杭州"),
+        Card(encrypt_id="c3", job="开发3", company="丙", area="杭州"),
+        Card(encrypt_id="c4", job="开发4", company="丁", area="杭州"),
+    ]
+    pool: Any = _ImmediatePool()
+    session._process_batch("AI Agent", cards, 0, pool, [])
+    assert session.ai_fail_streak == 3
+    assert session.stop.is_set()
+
+
+def test_watch_log_returns_on_alert_completion_and_stall(tmp_path: Path):
+    log_file = tmp_path / "screen.log"
+    log_file.write_text(
+        "2026-10-14 18:00:00 INFO 流式筛选开始\n"
+        "2026-10-14 18:01:00 WARNING 风控，暂停等人：Boss 弹出人机验证或登录页。\n",
+        encoding="utf-8",
+    )
+    out = io.StringIO()
+    code = watch_log(log_file, lambda: True, offset=0, poll_seconds=0.01, stall_seconds=10, out=out)
+    assert code == 2
+    assert "风控，暂停等人" in out.getvalue()
+
+    log_file2 = tmp_path / "done.log"
+    log_file2.write_text(
+        "2026-10-14 18:00:00 INFO 【AI Agent】汇总：卡片 5（终局跳过 1）\n"
+        "2026-10-14 18:02:00 INFO 筛选结束\n",
+        encoding="utf-8",
+    )
+    out2 = io.StringIO()
+    code2 = watch_log(log_file2, lambda: False, offset=0, poll_seconds=0.01, stall_seconds=10, out=out2)
+    assert code2 == 0
+    assert "【AI Agent】汇总" in out2.getvalue()
+    assert "值守结束：筛选进程已退出" in out2.getvalue()
+
+    log_file3 = tmp_path / "stall.log"
+    log_file3.write_text("", encoding="utf-8")
+    out3 = io.StringIO()
+    code3 = watch_log(log_file3, lambda: True, offset=0, poll_seconds=0.01, stall_seconds=0.01, out=out3)
+    assert code3 == 2
+    assert "值守告警" in out3.getvalue()
 
 
 class _ImmediatePool:
