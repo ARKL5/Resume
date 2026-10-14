@@ -8,6 +8,7 @@ import signal
 import threading
 import urllib.parse
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 
 from boss_screen.ai import complete, jd_prompt, parse_jd, parse_title_action, title_prompt
 from boss_screen.browser import detail_gap_seconds, fresh_page, halt_if_risk, needs_human, open_chrome, sleep_until
@@ -33,6 +34,24 @@ AI_PARALLELISM = 16
 MAX_SCROLL_ROUNDS = 30
 MAX_CONSECUTIVE_SEEN = 25
 MAX_EMPTY_SCROLLS = 4
+MAX_DETAIL_FAIL_STREAK = 2
+
+
+@dataclass
+class KeywordStats:
+    cards: int = 0
+    skipped: int = 0
+    rule_drops: int = 0
+    title_queued: int = 0
+    title_park: int = 0
+    title_drop: int = 0
+    title_fail: int = 0
+    detail_clicks: int = 0
+    detail_ok: int = 0
+    detail_fail: int = 0
+    jd_keep: int = 0
+    jd_drop: int = 0
+    jd_fail: int = 0
 
 _HARVEST_JS = """
 () => Array.from(document.querySelectorAll('ul.rec-job-list li.job-card-box')).map(el => {
@@ -94,16 +113,30 @@ def main() -> None:
 
 
 class Session:
+    detail_attempts: int = 0
+    detail_fail_streak: int = 0
+    details_since_last_break: int = 0
+    keyword_aborted: bool = False
+
     def __init__(self, settings: Settings, store: JobStore, page, stop: threading.Event) -> None:
         self.settings = settings
         self.store = store
         self.page = page
         self.stop = stop
         self.list_cards: dict[str, Card] = {}
+        self.attempted_details: set[str] = set()
         self.detail_attempts = 0
-        self.empty_detail_streak = 0
+        self.detail_fail_streak = 0
         self.details_since_last_break = 0
+        self.keyword_aborted = False
         page.on("response", self._on_response)
+
+    def _attempted(self) -> set[str]:
+        attempted = getattr(self, "attempted_details", None)
+        if attempted is None:
+            attempted = set()
+            self.attempted_details = attempted
+        return attempted
 
     def execute(self) -> None:
         self._retry_pending_jds()
@@ -122,15 +155,19 @@ class Session:
         if not pending:
             return
         log.info("库内残留待评 JD %s 条，优先后台重评（零网页点击）", len(pending))
-        with ThreadPoolExecutor(max_workers=AI_PARALLELISM) as pool:
+        pool = ThreadPoolExecutor(max_workers=AI_PARALLELISM)
+        try:
             futures = [pool.submit(self._screen_job, str(row.get("keyword") or ""), row) for row in pending]
             for future in futures:
                 if self.stop.is_set():
-                    break
+                    future.cancel()
+                    continue
                 try:
                     future.result()
                 except Exception as exc:
                     log.warning("残留 JD 重试失败: %s", exc)
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
 
     def _city(self, city_code: str) -> None:
         base = search_url(self.settings, city_code)
@@ -149,6 +186,7 @@ class Session:
 
     def _keyword(self, keyword: str, base: str) -> None:
         self.list_cards.clear()
+        self.keyword_aborted = False
         url = base + ("&" if "?" in base else "?") + "query=" + urllib.parse.quote_plus(keyword)
         self._open_list(keyword, url)
         if self.stop.is_set():
@@ -160,20 +198,25 @@ class Session:
         consecutive_seen = 0
         empty_scrolls = 0
         jd_futures: list[Future] = []
+        stats = KeywordStats()
 
-        with ThreadPoolExecutor(max_workers=AI_PARALLELISM) as jd_pool:
+        jd_pool = ThreadPoolExecutor(max_workers=AI_PARALLELISM)
+        try:
             for round_idx in range(MAX_SCROLL_ROUNDS):
-                if self.stop.is_set() or self._halt("Boss 列表页弹出人机验证或登录。"):
+                if self.stop.is_set() or self.keyword_aborted or self._halt("Boss 列表页弹出人机验证或登录。"):
                     break
                 batch = self._harvest_new(handled)
                 if batch:
                     empty_scrolls = 0
+                    stats.cards = len(handled)
                     log.info("【%s】第 %s 屏收获新卡片 %s 张（累计 %s 张）", keyword, round_idx + 1, len(batch), len(handled))
-                    consecutive_seen = self._process_batch(keyword, batch, consecutive_seen, jd_pool, jd_futures)
+                    consecutive_seen = self._process_batch(
+                        keyword, batch, consecutive_seen, jd_pool, jd_futures, stats
+                    )
                 else:
                     empty_scrolls += 1
 
-                if self.stop.is_set():
+                if self.stop.is_set() or self.keyword_aborted:
                     break
                 if consecutive_seen >= MAX_CONSECUTIVE_SEEN:
                     log.info("【%s】已连续遇到 %s 张已筛终局岗位，提前结束滚动", keyword, consecutive_seen)
@@ -186,10 +229,40 @@ class Session:
                     break
 
             for future in jd_futures:
+                if self.stop.is_set():
+                    future.cancel()
+                    continue
                 try:
-                    future.result()
+                    outcome = future.result()
+                    if outcome == "ai_keep":
+                        stats.jd_keep += 1
+                    elif outcome == "ai_jd_drop":
+                        stats.jd_drop += 1
+                    elif outcome == "ai_jd_pending":
+                        stats.jd_fail += 1
                 except Exception as exc:
+                    stats.jd_fail += 1
                     log.warning("详情 AI 失败: %s", exc)
+        finally:
+            jd_pool.shutdown(wait=True, cancel_futures=True)
+
+        log.info(
+            "【%s】汇总：卡片 %s（终局跳过 %s）| 规则淘汰 %s | 标题[待点 %s/含糊 %s/淘汰 %s/失败 %s] | 详情[点击 %s/成功 %s/失败 %s] | JD[保留 %s/淘汰 %s/待补 %s]",
+            keyword,
+            stats.cards,
+            stats.skipped,
+            stats.rule_drops,
+            stats.title_queued,
+            stats.title_park,
+            stats.title_drop,
+            stats.title_fail,
+            stats.detail_clicks,
+            stats.detail_ok,
+            stats.detail_fail,
+            stats.jd_keep,
+            stats.jd_drop,
+            stats.jd_fail,
+        )
 
     def _process_batch(
         self,
@@ -198,9 +271,13 @@ class Session:
         consecutive_seen: int,
         jd_pool: ThreadPoolExecutor,
         jd_futures: list[Future],
+        stats: KeywordStats | None = None,
     ) -> int:
+        if stats is None:
+            stats = KeywordStats()
         need_title_ai: list[Card] = []
         to_click: list[Card] = []
+        attempted = self._attempted()
 
         for card in batch:
             if self.stop.is_set():
@@ -214,6 +291,7 @@ class Session:
             step = next_step(prior, city, list_rule, remaining)
             if step == "skip":
                 consecutive_seen += 1
+                stats.skipped += 1
                 continue
             consecutive_seen = 0
             if step == "leave":
@@ -222,11 +300,16 @@ class Session:
                 continue
             if step == "rule":
                 self._write_card(keyword, card, "rule_drop", list_rule or "规则淘汰")
+                stats.rule_drops += 1
                 continue
             if step == "jd" and prior is not None:
                 jd_futures.append(jd_pool.submit(self._screen_job, keyword, prior))
                 continue
             if step == "click":
+                if card.encrypt_id in attempted:
+                    if prior is not None:
+                        self.store.upsert({"encryptId": card.encrypt_id, "keyword": keyword})
+                    continue
                 to_click.append(card)
                 continue
             need_title_ai.append(card)
@@ -240,10 +323,18 @@ class Session:
                 action, reason, classify_city(card.area), remaining
             )
             self._write_card(keyword, card, stage, clean_reason)
-            if should_click:
+            if stage == "jd_queued":
+                stats.title_queued += 1
+            elif stage == "jd_park":
+                stats.title_park += 1
+            elif stage == "ai_title_drop":
+                stats.title_drop += 1
+            elif stage == "ai_title_pending":
+                stats.title_fail += 1
+            if should_click and card.encrypt_id not in attempted:
                 to_click.append(card)
 
-        self._click_details(keyword, to_click, jd_pool, jd_futures)
+        self._click_details(keyword, to_click, jd_pool, jd_futures, stats)
         return consecutive_seen
 
     def _remaining_clicks(self) -> int:
@@ -271,11 +362,17 @@ class Session:
         cards: list[Card],
         jd_pool: ThreadPoolExecutor,
         jd_futures: list[Future],
+        stats: KeywordStats | None = None,
     ) -> None:
+        if stats is None:
+            stats = KeywordStats()
+        attempted = self._attempted()
         for card in cards:
+            if card.encrypt_id in attempted:
+                continue
             if self._remaining_clicks() <= 0:
                 break
-            if self.stop.is_set() or self._halt("Boss 弹出人机验证或登录页。"):
+            if self.stop.is_set() or self.keyword_aborted or self._halt("Boss 弹出人机验证或登录页。"):
                 break
             target = self._card_locator(card.encrypt_id)
             if target is None:
@@ -287,33 +384,69 @@ class Session:
                 with self.page.expect_response(_is_detail, timeout=15_000) as waited:
                     self._human_click(target)
                     self.detail_attempts += 1
+                    stats.detail_clicks += 1
+                    attempted.add(card.encrypt_id)
                 body = waited.value.text()
             except Exception:
                 if self._halt("Boss 点详情时弹出验证。"):
                     break
             if body is None:
+                stats.detail_fail += 1
                 if self.stop.is_set():
                     break
                 log.warning("等待岗位详情超时 | %s | %s", card.company, card.job)
+                if self._on_detail_failure("Boss 连续等待岗位详情超时，多半是风控或页面卡住。"):
+                    break
+                self._pause_between_jobs()
                 continue
             job = self._job_from_detail(card, body)
             if job is None:
+                stats.detail_fail += 1
+                if self.stop.is_set():
+                    break
+                if self._on_detail_failure("Boss 读不到岗位详情，多半是人机验证或页面卡住。"):
+                    break
+                self._pause_between_jobs()
                 continue
-            # 第一时间把抓到的 JD 与公司详情落入 SQLite，防止后续中断或 AI 失败丢失点击成果
-            stored = self.store.upsert({**job, "keyword": keyword})
-            if self.stop.is_set():
-                continue
+            self.detail_fail_streak = 0
+            stats.detail_ok += 1
             detail_rule = detail_rule_drop_reason(
                 job["active"], job["recruiterTitle"], job["recruiter"], self.settings.black_recruiters
             )
             if detail_rule:
                 self.store.upsert({**job, "keyword": keyword, "stage": "rule_drop", "reason": detail_rule})
+                stats.rule_drops += 1
                 log.info("rule_drop | %s | %s | %s", job["company"], job["job"], detail_rule)
+                if self.stop.is_set():
+                    continue
             else:
+                # 第一时间把抓到的 JD 与公司详情落入 SQLite，防止后续中断或 AI 失败丢失点击成果
+                stored = self.store.upsert({**job, "keyword": keyword})
+                if self.stop.is_set():
+                    continue
                 jd_futures.append(jd_pool.submit(self._screen_job, keyword, stored or job))
             self._pause_between_jobs()
             if self._halt("Boss 弹出人机验证或登录页。"):
                 break
+
+    def _on_detail_failure(self, reason: str) -> bool:
+        self.detail_fail_streak += 1
+        log.warning("详情获取连续失败 (%s/%s)", self.detail_fail_streak, MAX_DETAIL_FAIL_STREAK)
+        had_risk = needs_human(self.page)
+        if self.detail_fail_streak < MAX_DETAIL_FAIL_STREAK and not had_risk:
+            return False
+        if self._halt(reason):
+            return True
+        if had_risk:
+            self.detail_fail_streak = 0
+            return False
+        if self.detail_fail_streak > MAX_DETAIL_FAIL_STREAK:
+            log.warning("跨关键词刷新后详情仍失败（连续 %s 次），停止本轮筛选以保护账号", self.detail_fail_streak)
+            self.stop.set()
+        else:
+            log.warning("当前关键词连续 %s 次详情获取失败，提前结束该词并冷却", self.detail_fail_streak)
+            self.keyword_aborted = True
+        return True
 
     def _scroll_step(self) -> bool:
         try:
@@ -343,13 +476,8 @@ class Session:
         job_name = parsed.get("job") or ""
         company = parsed.get("company") or ""
         if not job_name.strip() and not company.strip():
-            self.empty_detail_streak += 1
-            log.warning("岗位详情为空 (%s/2)", self.empty_detail_streak)
-            if self.empty_detail_streak >= 2 or needs_human(self.page):
-                self._halt("Boss 读不到岗位详情，多半是人机验证或页面卡住。")
-                self.empty_detail_streak = 0
+            log.warning("岗位详情解析为空 | %s | %s", card.company, card.job)
             return None
-        self.empty_detail_streak = 0
         href = self._detail_href() or card.href
         area = parsed.get("area") or card.area
         city = classify_city(area)
@@ -387,7 +515,7 @@ class Session:
             return ""
         return ""
 
-    def _screen_job(self, keyword: str, job: dict) -> None:
+    def _screen_job(self, keyword: str, job: dict) -> str:
         try:
             raw = complete(self.settings, jd_prompt(self.settings, keyword, job))
         except Exception as exc:
@@ -400,7 +528,7 @@ class Session:
                     "reason": ai_fail_reason("JD", str(exc)),
                 }
             )
-            return
+            return "ai_jd_pending"
         keep, reason = parse_jd(raw)
         if keep is None:
             self.store.upsert(
@@ -411,7 +539,7 @@ class Session:
                     "reason": ai_fail_reason("JD", reason),
                 }
             )
-            return
+            return "ai_jd_pending"
         stage = "ai_keep" if keep else "ai_jd_drop"
         clean_reason = reason.strip() or "无理由"
         log.info("%s | %s | %s | %s", stage, job.get("company"), job.get("job"), clean_reason)
@@ -423,6 +551,7 @@ class Session:
                 "reason": clean_reason,
             }
         )
+        return stage
 
     def _pause_between_jobs(self) -> None:
         self.details_since_last_break += 1
@@ -593,15 +722,19 @@ class Session:
 def _parallel(label: str, cards: list[Card], fn, stop: threading.Event) -> list[tuple[str | None, str]]:
     log.info("%s 并行 %s 张", label, len(cards))
     out: list[tuple[str | None, str]] = [(None, label + "未返回")] * len(cards)
-    with ThreadPoolExecutor(max_workers=AI_PARALLELISM) as pool:
+    pool = ThreadPoolExecutor(max_workers=AI_PARALLELISM)
+    try:
         futures = [pool.submit(fn, card) for card in cards]
         for index, future in enumerate(futures):
             if stop.is_set():
-                break
+                future.cancel()
+                continue
             try:
                 out[index] = future.result()
             except Exception as exc:
                 out[index] = (None, str(exc))
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
     return out
 
 

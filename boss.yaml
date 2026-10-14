@@ -18,7 +18,7 @@ waitTime: 28
 keywordGapSeconds: 90
 dbPath: screen-results/boss.db
 logFile: screen-results/screen.log
-detailLimit: 15
+detailLimit: -1
 onRisk: wait
 
 ai:

@@ -264,8 +264,19 @@ def test_sqlite_store_returns_pending_jd_rows_with_captured_jd(tmp_path: Path):
                 "reason": "JD请求失败",
             }
         )
+        store.upsert(
+            {
+                "encryptId": "queued_with_jd",
+                "company": "丙",
+                "job": "开发",
+                "cityPage": "杭州",
+                "jd": "已抓取但中断的JD",
+                "stage": "jd_queued",
+                "reason": "标题契合",
+            }
+        )
         pending = store.pending_jd_rows()
-        assert [r["encryptId"] for r in pending] == ["has_jd"]
+        assert [r["encryptId"] for r in pending] == ["has_jd", "queued_with_jd"]
     finally:
         store.close()
 
@@ -281,6 +292,7 @@ def test_revisit_skips_all_terminal_stages_and_advances_queued_jobs():
     assert next_step(queued, "杭州", None, 2) == "click"
     assert next_step(queued, "杭州", None, 0) == "leave"
     assert next_step(queued, "其它", None, 2) == "leave"
+    assert next_step({"stage": "jd_queued", "cityPage": "杭州", "jd": "已抓到正文"}, "杭州", None, 2) == "jd"
 
     parked = {"stage": "jd_park", "cityPage": "杭州"}
     assert next_step(parked, "杭州", None, 3) == "leave"
@@ -584,6 +596,92 @@ def test_detail_response_is_stored_before_stop_signal():
             "keyword": "AI Agent",
         }
     ]
+
+
+def test_detail_failures_pause_abort_keyword_on_two_strikes_and_stop_run_on_third():
+    session: Any = Session.__new__(Session)
+    session.detail_attempts = 0
+    session.detail_fail_streak = 0
+    session.keyword_aborted = False
+    session.settings = type("Settings", (), {"detail_limit": -1})()
+    session.stop = threading.Event()
+    session.page = _TimeoutDetailPage()
+    session._halt = lambda _reason: False
+    session._card_locator = lambda _encrypt_id: _DetailTarget()
+    session._human_click = lambda _target: None
+    pauses = 0
+
+    def record_pause():
+        nonlocal pauses
+        pauses += 1
+
+    session._pause_between_jobs = record_pause
+
+    pool: Any = _ImmediatePool()
+    cards = [
+        Card(encrypt_id="one", job="开发1", company="甲"),
+        Card(encrypt_id="two", job="开发2", company="乙"),
+        Card(encrypt_id="three", job="开发3", company="丙"),
+    ]
+    session._click_details("AI Agent", cards, pool, [])
+
+    # 第 1 次失败后执行了停顿；第 2 次失败触发关键词级熔断，第 3 张卡片不再点击
+    assert session.detail_attempts == 2
+    assert pauses == 1
+    assert session.keyword_aborted is True
+    assert not session.stop.is_set()
+
+    # 下一个关键词重置 keyword_aborted，但若刷新页面后首击仍失败（第 3 次连续失败），直接停机保护账号
+    session.keyword_aborted = False
+    session._click_details("大模型", [Card(encrypt_id="four", job="开发4", company="丁")], pool, [])
+    assert session.detail_attempts == 3
+    assert session.stop.is_set()
+
+
+def test_same_run_skips_reclicking_already_attempted_encrypt_id():
+    session: Any = Session.__new__(Session)
+    session.detail_attempts = 0
+    session.detail_fail_streak = 0
+    session.keyword_aborted = False
+    session.attempted_details = {"dup_1"}
+    session.settings = type("Settings", (), {"detail_limit": -1})()
+    session.stop = threading.Event()
+    session.page = _DetailPage()
+    session._halt = lambda _reason: False
+    session._card_locator = lambda _encrypt_id: _DetailTarget()
+    session._human_click = lambda _target: None
+    session._job_from_detail = lambda _card, _body: None
+    session._pause_between_jobs = lambda: None
+
+    pool: Any = _ImmediatePool()
+    session._click_details("大模型", [Card(encrypt_id="dup_1", job="开发", company="甲")], pool, [])
+    assert session.detail_attempts == 0
+
+
+def test_stream_list_emits_keyword_summary_log(caplog: pytest.LogCaptureFixture):
+    session: Any = Session.__new__(Session)
+    session.stop = threading.Event()
+    session.keyword_aborted = False
+    session._halt = lambda _reason: False
+    session._harvest_new = lambda handled: (
+        handled.update({"a", "b"}) or [Card(encrypt_id="a", job="开发", company="甲"), Card(encrypt_id="b", job="运营", company="乙")]
+        if not handled
+        else []
+    )
+
+    def fake_process(_keyword, _batch, consecutive_seen, _jd_pool, _jd_futures, stats):
+        stats.skipped = 1
+        stats.rule_drops = 1
+        return consecutive_seen
+
+    session._process_batch = fake_process
+    session._footer_visible = lambda: True
+    session._scroll_step = lambda: True
+
+    with caplog.at_level(logging.INFO, logger="boss_screen"):
+        session._stream_list("AI Agent")
+
+    assert any("【AI Agent】汇总：卡片 2（终局跳过 1）| 规则淘汰 1" in rec.message for rec in caplog.records)
 
 
 class _ImmediatePool:

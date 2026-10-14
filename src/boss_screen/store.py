@@ -87,7 +87,7 @@ class JobStore:
     def pending_jd_rows(self) -> list[dict]:
         with self._lock:
             cur = self._conn.execute(
-                "SELECT * FROM jobs WHERE stage = 'ai_jd_pending' AND trim(jd) != '' ORDER BY updated_at ASC"
+                "SELECT * FROM jobs WHERE stage IN ('ai_jd_pending', 'jd_queued') AND trim(jd) != '' ORDER BY updated_at ASC"
             )
             return [_row_to_dict(r) for r in cur.fetchall()]
 

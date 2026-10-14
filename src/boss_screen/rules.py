@@ -195,11 +195,9 @@ def next_step(row: dict | None, city_page: str, list_rule: str | None, remaining
     stage = str(row.get("stage") or "")
     if stage == "ai_title_pending":
         return "title"
-    if stage == "ai_jd_pending":
+    if stage in ("ai_jd_pending", "jd_queued"):
         if str(row.get("jd") or "").strip():
             return "jd"
-        return "click" if (is_search_city(city_page) and remaining > 0) else "leave"
-    if stage == "jd_queued":
         return "click" if (is_search_city(city_page) and remaining > 0) else "leave"
     if stage == "jd_park":
         return "leave"
