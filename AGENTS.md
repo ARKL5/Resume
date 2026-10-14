@@ -24,6 +24,4 @@ Boss 岗位流式筛选，外加只读对照页。
 
 筛选运行时：`uv run --group dev ruff check src tests`，`uv run --group dev pyright`，`uv run --group dev pytest`。
 
-筛选进程从仓库根一直跑到自己结束：`uv run python src/boss_screen/__main__.py`（运行期 PID 写入 `.boss-screen.lock`，发 `SIGINT` 收尾退出）。这不是校验。
-
-后台拉起并阻塞值守到跑完或需要介入（风控暂停、连续失败、卡死）：`uv run python src/boss_screen/__main__.py --watch`。值守退出时筛选进程与 Chrome 保持现场，用 `agent-browser --cdp 9222 tab list` 挂上去排障后可再次 `--watch` 续守。
+筛选进程从仓库根一直跑到自己结束：`uv run python src/boss_screen/__main__.py`。这不是校验。
