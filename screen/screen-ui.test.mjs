@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { STATIONS } from "./src/constants.ts"
 import { parseReason } from "./src/reason.ts"
-import { activeClass, batchKey, batchKeys, batchLabel, batchMoment, laneOf, stationOf } from "./src/types.ts"
+import { activeClass, batchKey, batchKeys, batchLabel, laneOf, stationOf } from "./src/types.ts"
 
 test("station names and shortcuts share one definition", () => {
   assert.deepEqual(STATIONS.map(({ id, title, keyHint }) => [id, title, keyHint]), [
@@ -43,19 +43,19 @@ test("both job views use the same active-time classification", () => {
   assert.equal(activeClass("本月活跃"), "act-cold")
 })
 
-test("one screening run is grouped into one local-date batch", () => {
-  assert.equal(batchKey("2026-10-14T20:26:00"), "2026-10-14")
-  assert.equal(batchKey("2026-10-14T23:59:00"), "2026-10-14")
+test("one screening run is one local batch, same-day runs stay separate", () => {
+  assert.equal(batchKey("2026-10-14T20:26:00"), "2026-10-14 20:26")
+  assert.equal(batchKey("2026-10-14T23:59:00"), "2026-10-14 23:59")
   assert.equal(batchKey(""), "")
   assert.equal(batchKey("not-a-date"), "")
-  assert.equal(batchLabel("2026-10-14"), "10-14")
-  assert.equal(batchMoment("2026-10-14T20:26:00"), "10-14 20:26")
+  assert.equal(batchLabel("2026-10-21 10:44"), "10-21 10:44")
+  assert.equal(batchLabel("2026-10-21"), "2026-10-21")
   assert.deepEqual(
     batchKeys([
       { batchAt: "2026-10-14T20:26:00" },
-      { batchAt: "2026-10-21T20:00:00" },
-      { batchAt: "2026-10-14T23:00:00" },
+      { batchAt: "2026-10-21T10:44:00" },
+      { batchAt: "2026-10-21T09:10:00" },
     ]),
-    ["2026-10-21", "2026-10-14"],
+    ["2026-10-21 10:44", "2026-10-21 09:10", "2026-10-14 20:26"],
   )
 })

@@ -106,8 +106,8 @@ test("list reasons and navigation omit decorative prefixes but keep shortcuts an
     totalCount: 12,
     offline: false,
     onRefresh() {},
-    batches: ["2026-10-14"],
-    batch: "2026-10-14",
+    batches: ["2026-10-21 10:44"],
+    batch: "2026-10-21 10:44",
     onSelectBatch() {},
     city: "杭州",
     onSelectCity() {},
@@ -130,7 +130,7 @@ test("list reasons and navigation omit decorative prefixes but keep shortcuts an
   assert.ok(bar.includes("[刷新 r]"))
   assert.ok(bar.includes("检索岗位、公司或停因"))
   assert.ok(bar.includes(">全部<"))
-  assert.ok(bar.includes("10-14"))
+  assert.ok(bar.includes("10-21 10:44"))
   for (const decoration of ["SWISS", "DB //", "01", "SUB-LANE", "FILTER", "ALL //"]) {
     assert.equal(bar.includes(decoration), false, decoration)
   }

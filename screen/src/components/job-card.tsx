@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef } from "react"
 import { itemReason } from "../reason"
-import { activeClass, batchKey, batchLabel, batchMoment, jobKey, type ScreenItem } from "../types"
+import { activeClass, batchKey, batchLabel, jobKey, type ScreenItem } from "../types"
 
 type Props = {
   item: ScreenItem
@@ -22,7 +22,6 @@ function JobCard({ item, index, isSelected, isStarred, onSelect, onToggleStar }:
   const reason = itemReason(item)
   const actCls = activeClass(activeText)
   const batch = batchLabel(batchKey(item.batchAt))
-  const batchMomentText = batchMoment(item.batchAt)
 
   useEffect(() => {
     if (isSelected && cardRef.current) {
@@ -56,7 +55,7 @@ function JobCard({ item, index, isSelected, isStarred, onSelect, onToggleStar }:
 
         {salary ? <span className="card-salary">{salary}</span> : null}
         {batch ? (
-          <span className="card-batch" title={`筛选批次：${batchMomentText}`}>
+          <span className="card-batch" title={`筛选批次：${batchKey(item.batchAt)}`}>
             {batch}
           </span>
         ) : null}

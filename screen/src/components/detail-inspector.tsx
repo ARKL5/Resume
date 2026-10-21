@@ -1,6 +1,6 @@
 import { memo, useMemo, useState } from "react"
 import { itemReason } from "../reason"
-import { activeClass, batchKey, batchLabel, batchMoment, bossHref, jobKey, type ScreenItem } from "../types"
+import { activeClass, batchKey, batchLabel, bossHref, jobKey, type ScreenItem } from "../types"
 
 type Props = {
   item: ScreenItem | null
@@ -72,7 +72,6 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
   const reason = itemReason(item)
   const actCls = activeClass(activeText)
   const batch = batchLabel(batchKey(item.batchAt))
-  const batchMomentText = batchMoment(item.batchAt)
 
   const isRiskClean = reason.modular?.risk?.includes("无明显硬伤")
 
@@ -151,8 +150,8 @@ function DetailInspector({ item, isStarred, onToggleStar, stationTitle, laneTitl
               <span className={`meta-block active-block ${actCls}`}>{activeText}</span>
             ) : null}
             {batch ? (
-              <span className="meta-block batch-block" title={`筛选批次：${batchMomentText}`}>
-                批次 {batchMomentText || batch}
+              <span className="meta-block batch-block" title={`筛选批次：${batchKey(item.batchAt)}`}>
+                批次 {batch}
               </span>
             ) : null}
           </div>

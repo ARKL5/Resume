@@ -132,22 +132,16 @@ function pad(value: number): string {
   return String(value).padStart(2, "0")
 }
 
-/** 批次键取本地日期，同一轮筛选的岗位共用同一个键。 */
+/** 批次键取本轮启动的本地日期与时刻，一轮筛选一个键，同一天的多轮不合并。 */
 export function batchKey(iso: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return ""
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 export function batchLabel(key: string): string {
-  const match = /^\d{4}-(\d{2}-\d{2})$/.exec(key)
+  const match = /^\d{4}-(\d{2}-\d{2} \d{2}:\d{2})$/.exec(key)
   return match ? match[1] : key
-}
-
-export function batchMoment(iso: string): string {
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return ""
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 export function batchKeys(items: ScreenItem[]): string[] {
