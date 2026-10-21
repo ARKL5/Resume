@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     stage TEXT NOT NULL,
     reason TEXT NOT NULL DEFAULT '',
     first_seen_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    batch_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_updated_at ON jobs(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_stage ON jobs(stage);
@@ -60,9 +61,10 @@ _TEXT_FIELDS = (
 
 
 class JobStore:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, batch_at: str | None = None) -> None:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.batch_at = batch_at or datetime.now(UTC).isoformat()
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False, timeout=10.0)
         self._conn.row_factory = sqlite3.Row
@@ -137,6 +139,10 @@ class JobStore:
             reason = str(patch.get("reason") if "reason" in patch else (existing.get("reason") or "")).strip()
             merged["stage"] = stage
             merged["reason"] = reason or "未写明"
+            # 一轮筛选共用一个批次时间。只带关键词的补写不改批次，避免旧待读岗混进新批次。
+            prior_batch = str(existing.get("batchAt") or "")
+            incoming_stage = str(patch.get("stage") or "").strip()
+            merged["batchAt"] = self.batch_at if (incoming_stage or not prior_batch) else prior_batch
 
             if not is_placed_row(merged):
                 return None
@@ -147,12 +153,12 @@ class JobStore:
                     encrypt_id, company, job, salary, area, city_page,
                     recruiter, recruiter_title, active, href, tags, jd,
                     degree, experience, industry, scale, financing,
-                    keyword, keywords, stage, reason, first_seen_at, updated_at
+                    keyword, keywords, stage, reason, first_seen_at, updated_at, batch_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?
                 )
                 ON CONFLICT(encrypt_id) DO UPDATE SET
                     company = excluded.company,
@@ -175,7 +181,8 @@ class JobStore:
                     keywords = excluded.keywords,
                     stage = excluded.stage,
                     reason = excluded.reason,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    batch_at = excluded.batch_at
                 """,
                 (
                     merged["encryptId"],
@@ -201,6 +208,7 @@ class JobStore:
                     merged["reason"],
                     merged["firstSeenAt"],
                     merged["updatedAt"],
+                    merged["batchAt"],
                 ),
             )
             self._conn.commit()
@@ -237,4 +245,5 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
         "reason": row["reason"],
         "firstSeenAt": row["first_seen_at"],
         "updatedAt": row["updated_at"],
+        "batchAt": row["batch_at"],
     }

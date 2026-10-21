@@ -76,5 +76,6 @@ function mapRow(row) {
     keywords,
     stage: String(row.stage || ""),
     reason: String(row.reason || ""),
+    batchAt: String(row.batch_at || ""),
   }
 }

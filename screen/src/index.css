@@ -109,16 +109,30 @@ a {
   gap: 10px;
 }
 
-.swiss-file-picker {
+.topbar-batch-group {
   display: flex;
   align-items: center;
+}
+
+.swiss-batch-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   background: var(--swiss-paper);
   border: 1px solid var(--swiss-black);
   padding: 3px 8px;
   border-radius: 0;
 }
 
-.swiss-select {
+.batch-label {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-secondary);
+  white-space: nowrap;
+}
+
+.swiss-batch-select {
   border: none;
   background: transparent;
   font-family: var(--mono);
@@ -482,6 +496,14 @@ a {
   white-space: nowrap;
 }
 
+.card-batch {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-tertiary);
+  white-space: nowrap;
+}
+
 .card-meta-row {
   display: flex;
   align-items: center;
@@ -730,6 +752,13 @@ a {
   background: var(--swiss-paper);
   border-color: var(--swiss-border);
   font-weight: 600;
+}
+
+.meta-block.batch-block {
+  background: var(--swiss-surface);
+  border-color: var(--swiss-black);
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .swiss-keywords-bar {
@@ -1038,8 +1067,12 @@ a {
     order: 5;
   }
 
-  .topbar-star {
+  .topbar-batch-group {
     order: 6;
+  }
+
+  .topbar-star {
+    order: 7;
     margin-left: auto;
   }
 

@@ -241,6 +241,57 @@ def test_sqlite_store_upserts_merges_fields_and_collects_keywords(tmp_path: Path
         reopened.close()
 
 
+def test_sqlite_store_uses_one_batch_per_run_and_keeps_it_on_keyword_only_writes(tmp_path: Path):
+    db_path = tmp_path / "boss.db"
+    first = JobStore(db_path, batch_at="2026-10-14T20:26:00+08:00")
+    try:
+        first.upsert(
+            {
+                "encryptId": "parked",
+                "job": "Agent 开发",
+                "company": "甲",
+                "cityPage": "杭州",
+                "stage": "jd_park",
+                "reason": "职责看不准",
+            }
+        )
+        parked = first.get("parked")
+        assert parked is not None
+        assert parked["batchAt"] == "2026-10-14T20:26:00+08:00"
+    finally:
+        first.close()
+
+    second = JobStore(db_path, batch_at="2026-10-21T20:00:00+08:00")
+    try:
+        # 只补关键词的重复记录不算新一轮筛选结果，保留原批次。
+        second.upsert({"encryptId": "parked", "keyword": "RAG"})
+        parked = second.get("parked")
+        assert parked is not None
+        assert parked["batchAt"] == "2026-10-14T20:26:00+08:00"
+
+        second.upsert(
+            {
+                "encryptId": "fresh",
+                "job": "RAG 开发",
+                "company": "乙",
+                "cityPage": "杭州",
+                "stage": "ai_title_pending",
+                "reason": "标题失败",
+            }
+        )
+        fresh = second.get("fresh")
+        assert fresh is not None
+        assert fresh["batchAt"] == "2026-10-21T20:00:00+08:00"
+
+        # 同一轮里重评旧的待读岗，批次随新结果前进。
+        second.upsert({"encryptId": "parked", "stage": "ai_jd_pending", "reason": "JD失败"})
+        parked = second.get("parked")
+        assert parked is not None
+        assert parked["batchAt"] == "2026-10-21T20:00:00+08:00"
+    finally:
+        second.close()
+
+
 def test_sqlite_store_returns_pending_jd_rows_with_captured_jd(tmp_path: Path):
     store = JobStore(tmp_path / "boss.db")
     try:

@@ -1,11 +1,14 @@
 import { memo } from "react"
 import { CITY_PAGES, STATIONS } from "../constants"
-import type { CityPage, LaneId, StationId } from "../types"
+import { batchLabel, type CityPage, type LaneId, type StationId } from "../types"
 
 type Props = {
   totalCount: number
   offline: boolean
   onRefresh: () => void
+  batches: string[]
+  batch: string
+  onSelectBatch: (batch: string) => void
   city: CityPage
   onSelectCity: (city: CityPage) => void
   cityCounts: Record<CityPage, number>
@@ -27,6 +30,9 @@ function TopBar({
   totalCount,
   offline,
   onRefresh,
+  batches,
+  batch,
+  onSelectBatch,
   city,
   onSelectCity,
   cityCounts,
@@ -103,6 +109,28 @@ function TopBar({
             })}
           </div>
         </div>
+
+        {/* 批次筛选：同一轮筛选共用一个时间 */}
+        {batches.length > 0 ? (
+          <div className="topbar-batch-group">
+            <label className="swiss-batch-picker">
+              <span className="batch-label">批次</span>
+              <select
+                className="swiss-batch-select"
+                value={batch}
+                onChange={(e) => onSelectBatch(e.target.value)}
+                title="按筛选批次过滤岗位"
+              >
+                <option value="">全部</option>
+                {batches.map((key) => (
+                  <option key={key} value={key}>
+                    {batchLabel(key)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : null}
 
         <button
           type="button"

@@ -6,6 +6,8 @@ import TopBar from "./components/top-bar"
 import MasterList from "./components/master-list"
 import DetailInspector from "./components/detail-inspector"
 import {
+  batchKey,
+  batchKeys,
   bossHref,
   cityOf,
   defaultStation,
@@ -39,6 +41,7 @@ export default function ScreenBoard() {
   const [station, setStation] = useState<StationId>(() => initialParams.station || "keep")
   const [lane, setLane] = useState<LaneId | null>(null)
   const [query, setQuery] = useState(initialParams.query)
+  const [batch, setBatch] = useState("")
   const [onlyStar, setOnlyStar] = useState(false)
   const [stars, setStars] = useState<Set<string>>(() => new Set())
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -46,6 +49,7 @@ export default function ScreenBoard() {
   const cityRef = useRef(city)
   cityRef.current = city
   const loadGen = useRef(0)
+  const batchPicked = useRef(false)
   const deferredQuery = useDeferredValue(query)
 
   const loadResults = useCallback(async (preferredStation?: StationId | null) => {
@@ -59,7 +63,11 @@ export default function ScreenBoard() {
       setItems(validItems)
       setOffline(false)
       if (preferredStation !== undefined && validItems.length > 0) {
-        setStation(preferredStation ?? defaultStation(validItems, cityRef.current))
+        const latest = batchKeys(validItems)[0] ?? ""
+        const considered = latest
+          ? validItems.filter((item) => batchKey(item.batchAt) === latest)
+          : validItems
+        setStation(preferredStation ?? defaultStation(considered, cityRef.current))
       }
     } catch {
       if (gen !== loadGen.current) return
@@ -100,19 +108,38 @@ export default function ScreenBoard() {
     setOnlyStar((prev) => !prev)
   }, [])
 
+  const onSelectBatch = useCallback((next: string) => {
+    batchPicked.current = true
+    setBatch(next)
+  }, [])
+
+  const batchList = useMemo(() => batchKeys(items), [items])
+
+  // 未手动选批次时始终跟到最新一轮，刷新出新一轮也不用再点一次。
+  useEffect(() => {
+    if (batchPicked.current) return
+    const latest = batchList[0]
+    if (latest && latest !== batch) setBatch(latest)
+  }, [batchList, batch])
+
+  const inBatch = useMemo(() => {
+    if (!batch) return items
+    return items.filter((item) => batchKey(item.batchAt) === batch)
+  }, [items, batch])
+
   const cityCounts = useMemo(() => {
     const m: Record<CityPage, number> = { 杭州: 0, 上海: 0, 其它: 0 }
-    for (const it of items) {
+    for (const it of inBatch) {
       const c = cityOf(it)
       if (c) m[c] += 1
     }
     return m
-  }, [items])
+  }, [inBatch])
 
   const inCity = useMemo(() => {
     const q = deferredQuery.trim().toLowerCase()
     const out: ScreenItem[] = []
-    for (const it of items) {
+    for (const it of inBatch) {
       if (cityOf(it) !== city) continue
       const k = jobKey(it)
       if (onlyStar && !stars.has(k)) continue
@@ -126,7 +153,7 @@ export default function ScreenBoard() {
       out.push(it)
     }
     return out
-  }, [items, city, onlyStar, stars, deferredQuery])
+  }, [inBatch, city, onlyStar, stars, deferredQuery])
 
   const stationCounts = useMemo(() => {
     const m: Record<StationId, number> = { keep: 0, wait: 0, ai: 0, rule: 0 }
@@ -151,11 +178,11 @@ export default function ScreenBoard() {
 
   const starCount = useMemo(() => {
     let n = 0
-    for (const it of items) {
+    for (const it of inBatch) {
       if (cityOf(it) === city && stars.has(jobKey(it))) n += 1
     }
     return n
-  }, [items, city, stars])
+  }, [inBatch, city, stars])
 
   const displayItems = useMemo(() => {
     const ofStation: ScreenItem[] = []
@@ -172,7 +199,7 @@ export default function ScreenBoard() {
 
   useEffect(() => {
     setSelectedIndex(0)
-  }, [city, station, lane, deferredQuery, onlyStar])
+  }, [city, station, lane, deferredQuery, onlyStar, batch])
 
   const safeIndex = displayItems.length === 0 ? 0 : Math.min(selectedIndex, displayItems.length - 1)
   const currentItem = displayItems[safeIndex] ?? null
@@ -254,9 +281,12 @@ export default function ScreenBoard() {
   return (
     <div className="workbench-app">
       <TopBar
-        totalCount={items.length}
+        totalCount={inBatch.length}
         offline={offline}
         onRefresh={onRefresh}
+        batches={batchList}
+        batch={batch}
+        onSelectBatch={onSelectBatch}
         city={city}
         onSelectCity={onSelectCity}
         cityCounts={cityCounts}

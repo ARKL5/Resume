@@ -56,15 +56,16 @@ test("readResults reads jobs from SQLite ordered by updated_at descending", (t) 
       stage TEXT NOT NULL,
       reason TEXT NOT NULL DEFAULT '',
       first_seen_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      batch_at TEXT NOT NULL DEFAULT ''
     );
   `)
   const insert = db.prepare(`
-    INSERT INTO jobs (encrypt_id, company, job, city_page, keywords, stage, reason, first_seen_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO jobs (encrypt_id, company, job, city_page, keywords, stage, reason, first_seen_at, updated_at, batch_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
-  insert.run("old-id", "甲", "开发", "杭州", '["AI Agent"]', "jd_queued", "标题契合", "2026-04-15T01:00:00Z", "2026-04-15T01:00:00Z")
-  insert.run("new-id", "乙", "Agent开发", "上海", '["AI Agent","RAG"]', "ai_keep", "保留评语", "2026-04-16T01:00:00Z", "2026-04-16T02:00:00Z")
+  insert.run("old-id", "甲", "开发", "杭州", '["AI Agent"]', "jd_queued", "标题契合", "2026-04-15T01:00:00Z", "2026-04-15T01:00:00Z", "2026-04-15T09:00:00+08:00")
+  insert.run("new-id", "乙", "Agent开发", "上海", '["AI Agent","RAG"]', "ai_keep", "保留评语", "2026-04-16T01:00:00Z", "2026-04-16T02:00:00Z", "2026-04-16T09:00:00+08:00")
   db.close()
 
   const [status, body] = readResults(root)
@@ -72,6 +73,7 @@ test("readResults reads jobs from SQLite ordered by updated_at descending", (t) 
   assert.equal(body.items.length, 2)
   assert.equal(body.items[0].encryptId, "new-id")
   assert.deepEqual(body.items[0].keywords, ["AI Agent", "RAG"])
+  assert.equal(body.items[0].batchAt, "2026-04-16T09:00:00+08:00")
   assert.equal(body.items[1].encryptId, "old-id")
 })
 
