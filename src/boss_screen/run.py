@@ -41,7 +41,9 @@ from boss_screen.store import JobStore
 log = logging.getLogger("boss_screen")
 
 AI_PARALLELISM = 16
-MAX_SCROLL_ROUNDS = 30
+# Boss 每个搜索词最多 20 页 × 15 张（300 条后 hasMore 即 false），接口 joblist.json 没有排序参数。
+# 一轮滚轮约翻一页，60 轮才吃得满 20 页；再深也没有新岗，增量只来自加词或加城市。
+MAX_SCROLL_ROUNDS = 60
 MAX_CONSECUTIVE_SEEN = 25
 MAX_EMPTY_SCROLLS = 4
 # 熔断看滑动窗口而不是连续计数：上游 429/超时这类可重试失败之间夹着成功就不停轮。
@@ -501,7 +503,7 @@ class Session:
 
     def _scroll_step(self) -> bool:
         try:
-            delta = random.randint(520, 860)
+            delta = random.randint(700, 1100)
             self.page.mouse.wheel(0, delta)
         except Exception:
             self.facts.fail("列表滚动失败，需检查页面")
